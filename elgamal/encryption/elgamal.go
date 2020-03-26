@@ -60,17 +60,7 @@ func RandModOrder(rng *amcl.RAND) *ED25519.BIG {
 var GroupOrder = ED25519.NewBIGints(ED25519.CURVE_Order)
 
 
-
-func main() {
-   
-   rnd := GetRand()
-
-   // private and public keys for Alice 
-   a := RandModOrder(rnd)
-   A := GenG.Mul(a)
-
-
-
+func Encrypt(A *ED25519.ECP, m string, rnd *amcl.RAND) ( *ED25519.ECP, *ED25519.ECP) {
   //Encryption with public
   k := RandModOrder(rnd)
   kA :=A.Mul(k)  
@@ -79,10 +69,7 @@ func main() {
 
   //limitation à des blocks de 20 octets
   msg := make([]byte,ED25519.MODBYTES)
-  m := "12"
-
   mm := msg[ED25519.MODBYTES-uint(len(m)):]
-
 
   copy(mm,[]byte(m))
   //msg[0] = 2
@@ -102,8 +89,31 @@ func main() {
   C.Copy(kA)
   fmt.Println("C crypté",C.ToString())
 
+  return K, C
 
-   //Decryption with private Key à partir de C etK
+}
+
+
+
+func main() {
+   
+   rnd := GetRand()
+
+   // private and public keys for Alice 
+   a := RandModOrder(rnd)
+   A := GenG.Mul(a)
+
+   K := ED25519.NewECP()
+   C := ED25519.NewECP()
+
+   K, C = Encrypt(A,"hello",rnd)
+
+
+
+
+
+
+   //Decryption with private Key à partir de C et K
 
    S := K.Mul(a) 
    C.Sub(S)
