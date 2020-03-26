@@ -65,68 +65,62 @@ func main() {
    
    rnd := GetRand()
 
-   // private and public keys of the signers
-   x := RandModOrder(rnd)
-   H := GenG.Mul(x)
-
-  //Encryption with public key H
-  y := RandModOrder(rnd)
-  S :=H.Mul(y)  
-
-  fmt.Println("S",S.GetX().ToString())  
-  C1 := GenG.Mul(y)
+   // private and public keys for Alice 
+   a := RandModOrder(rnd)
+   A := GenG.Mul(a)
 
 
+
+  //Encryption with public
+  k := RandModOrder(rnd)
+  kA :=A.Mul(k)  
+
+  K := GenG.Mul(k)
+
+  //limitation à des blocks de 20 octets
   msg := make([]byte,ED25519.MODBYTES)
-    m := "Bonjour cest"
+  m := "12"
 
   mm := msg[ED25519.MODBYTES-uint(len(m)):]
 
 
   copy(mm,[]byte(m))
   //msg[0] = 2
-  fmt.Println(msg)
+  fmt.Println(mm)
 
   Mbig := ED25519.FromBytes(msg)
   Mbig.Mod(GroupOrder)
 
   M := ED25519.NewECPbig(Mbig)
 
-  fmt.Println("M",Mbig.ToString())
+  fmt.Println("M",M.ToString())
 
-  C2x := ED25519.Modmul(M.GetX(),S.GetX(), GroupOrder)
-  C2y := ED25519.Modmul(M.GetY(),S.GetY(), GroupOrder)
+  kA.Add(M) 
 
-fmt.Println("C2X: ", C2x.ToString())
+  C := ED25519.NewECP()
 
- // C2 := ED25519.NewECPbigs(C2x,C2y)
-
-  //fmt.Println(C1.ToString())
-  //fmt.Println(C2.ToString())
+  C.Copy(kA)
+  fmt.Println("C crypté",C.ToString())
 
 
+   //Decryption with private Key à partir de C etK
 
-   //Decryption with private Key x
-
-   S2 := C1.Mul(x) 
-   S2x := S2.GetX()
-   S2y := S2.GetY()
-   //fmt.Println("S2",S.GetX().ToString())  
-
-   S2x.Invmodp(GroupOrder)
-   S2y.Invmodp(GroupOrder)
-
-    
-   M1 := ED25519.Modmul(C2x,S2x,GroupOrder)
-   M2 := ED25519.Modmul(C2y,S2y,GroupOrder)
+   S := K.Mul(a) 
+   C.Sub(S)
    
-   MM := ED25519.NewECPbigs(M1,M2)
+
+   MDec := ED25519.NewECP()
+   MDec.Copy(C)
+
+ //  fmt.Println(C.GetX().ToString())
+
+
 
    b := make([]byte,ED25519.MODBYTES)
 
-   M1.ToBytes(b)
-   fmt.Println(string(b))
-   fmt.Println(M1.ToString())
-   fmt.Println(MM.GetY().ToString())
+   MDec.GetX().ToBytes(b)
+   fmt.Println("string => " ,string(b))
+
+ //  fmt.Println(MDec.GetX().ToString())
 
 }
