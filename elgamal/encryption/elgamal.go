@@ -59,7 +59,7 @@ func RandModOrder(rng *amcl.RAND) *ED25519.BIG {
 // GroupOrder is the order of the groups
 var GroupOrder = ED25519.NewBIGints(ED25519.CURVE_Order)
 
-
+// Pub key du receiver en entrée
 func Encrypt(A *ED25519.ECP, m string, rnd *amcl.RAND) ( *ED25519.ECP, *ED25519.ECP) {
   //Encryption with public
   k := RandModOrder(rnd)
@@ -93,6 +93,19 @@ func Encrypt(A *ED25519.ECP, m string, rnd *amcl.RAND) ( *ED25519.ECP, *ED25519.
 
 }
 
+// priv key du receiver en entrée
+func Decrypt(a *ED25519.BIG, K *ED25519.ECP, C *ED25519.ECP, rnd *amcl.RAND) []byte {
+   S := K.Mul(a) 
+   C.Sub(S)
+   
+   MDec := ED25519.NewECP()
+   MDec.Copy(C)
+
+   b := make([]byte,ED25519.MODBYTES)
+   MDec.GetX().ToBytes(b)
+
+   return b
+}
 
 
 func main() {
@@ -105,32 +118,12 @@ func main() {
 
    K := ED25519.NewECP()
    C := ED25519.NewECP()
-
-   K, C = Encrypt(A,"hello",rnd)
-
-
-
-
-
-
-   //Decryption with private Key à partir de C et K
-
-   S := K.Mul(a) 
-   C.Sub(S)
+   var u []byte 
    
 
-   MDec := ED25519.NewECP()
-   MDec.Copy(C)
+   K, C = Encrypt(A,"Wlobabubli",rnd)
+   u = Decrypt(a, K,C,rnd)
+   fmt.Print(string(u)+"\n\n")
 
- //  fmt.Println(C.GetX().ToString())
-
-
-
-   b := make([]byte,ED25519.MODBYTES)
-
-   MDec.GetX().ToBytes(b)
-   fmt.Println("string => " ,string(b))
-
- //  fmt.Println(MDec.GetX().ToString())
 
 }
