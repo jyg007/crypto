@@ -61,21 +61,20 @@ func RandModOrder(rng *amcl.RAND) *ED25519.BIG {
 var GroupOrder = ED25519.NewBIGints(ED25519.CURVE_Order)
 
 func main() {
-   fmt.Println(ED25519.CURVETYPE)
    
    rnd := GetRand()
 
    sk := RandModOrder(rnd)
    pk := GenG.Mul(sk)
 
-   fmt.Println(sk)
-   fmt.Println(pk)
+   fmt.Println("sk ",sk.ToString())
+   fmt.Println("pk ",pk.ToString())
 
-   fmt.Println("balbal",EcpToBytes(pk))
+
 
    k := RandModOrder(rnd)
    r := GenG.Mul(k)
-fmt.Println("r",r)
+   // fmt.Println("r",r.ToString())
     
 /*
    msg := ED25519.FromBytes([]byte("Hello World"))
@@ -83,13 +82,16 @@ fmt.Println("r",r)
 */
   // faire le sha(256) de r.ToBytes() + msg
 	H:=sha256.New()
-    H.Write([]byte(EcpToBytes(r)))
-    H.Write([]byte("Hello World"))
+  H.Write([]byte(EcpToBytes(r)))
+  H.Write([]byte("Hello World"))
 	hash :=H.Sum(nil) 
 
     HBIG := ED25519.FromBytes(hash[:])
     HBIG.Mod(GroupOrder)
     
+
+    fmt.Println()
+    fmt.Println("sender")
     fmt.Println("e",HBIG.ToString())
 
     xe := ED25519.Modmul(sk,HBIG,GroupOrder)
@@ -99,6 +101,7 @@ fmt.Println("r",r)
 
 
     //Checking
+    fmt.Println("\nReceiver")
 
     rv := pk.Mul2(HBIG,GenG,s)
     /*
@@ -109,15 +112,16 @@ fmt.Println("r",r)
 
     fmt.Println("rv",gs)
     */
-    fmt.Println("rv",rv)
+    fmt.Println("rv",rv.ToString())
     Hc:=sha256.New()
     Hc.Write([]byte(EcpToBytes(rv)))
     Hc.Write([]byte("Hello World"))
-	hashc :=Hc.Sum(nil) 
+	  hashc :=Hc.Sum(nil) 
 
     HcBIG := ED25519.FromBytes(hashc[:])
     HcBIG.Mod(GroupOrder)
     
+    fmt.Println("preuve: ev=e")
     fmt.Println("ev",HcBIG.ToString())
 
 
