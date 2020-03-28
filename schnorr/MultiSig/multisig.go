@@ -18,6 +18,13 @@ func EcpToBytes(E *ED25519.ECP) []byte {
 	return res
 }
 
+// BigToBytes takes an *amcl.BIG and returns a []byte representation
+func BigToBytes(big *ED25519.BIG) []byte {
+  ret := make([]byte, FieldBytes)
+  big.ToBytes(ret)
+  return ret
+}
+
 // Modsub takes input BIGs a, b, m and returns a-b modulo m
 func Modsub(a, b, m *ED25519.BIG) *ED25519.BIG {
 	return Modadd(a, ED25519.Modneg(b, m), m)
@@ -61,45 +68,109 @@ func RandModOrder(rng *amcl.RAND) *ED25519.BIG {
 var GroupOrder = ED25519.NewBIGints(ED25519.CURVE_Order)
 
 
-func Sign(sk *ED25519.BIG, msg []byte, rnd *amcl.RAND) ( *ED25519.BIG, *ED25519.BIG) {
-   kBIG := RandModOrder(rnd)
-   rECP := GenG.Mul(kBIG)
-   // fmt.Println("r",r.ToString())
+// X est l aggregated key representant chacun des signers, il est noté ~X dans le papier https://eprint.iacr.org/2018/068.pdf
+// il peut être utilisé pour representer le compte
+func GetX_AggregatedPk(pk1 *ED25519.ECP,pk2 *ED25519.ECP )(*ED25519.ECP, *ED25519.BIG,*ED25519.BIG ) {
+
+   //Now we have X = summation of every participants H(L,P)P  - a=H(L,P)
+   
+    //L = H(set of each individual’s Public key P).
+    Lhash:=sha256.New()
+    Lhash.Write([]byte(EcpToBytes(pk1)))
+    Lhash.Write([]byte(EcpToBytes(pk2)))
+    LBytes :=Lhash.Sum(nil) 
+
+    hash1 := sha256.New()
+    hash1.Write(LBytes)
+    hash1.Write([]byte(EcpToBytes(pk1)))
+    hash1Bytes :=hash1.Sum(nil) 
+
+    a1 := ED25519.FromBytes(hash1Bytes[:])
+    a1.Mod(GroupOrder)
+
+    X := pk1.Mul(a1)
+
+    hash2 := sha256.New()
+    hash2.Write(LBytes)
+    hash2.Write([]byte(EcpToBytes(pk2)))
+    hash2Bytes :=hash2.Sum(nil) 
+
+    a2 := ED25519.FromBytes(hash2Bytes[:])
+    a2.Mod(GroupOrder)
     
+    X.Add(pk2.Mul(a2))
 
- // fmt.Print(msg)
+   // fmt.Println("X: ",X.ToString())
 
-  // faire le sha(256) de r.ToBytes() + msg
-    H:=sha256.New()
-    H.Write([]byte(EcpToBytes(rECP)))
-    H.Write(msg)
-    hash :=H.Sum(nil) 
-
-    eBIG := ED25519.FromBytes(hash[:])
-    eBIG.Mod(GroupOrder)
-    
-    xeBIG := ED25519.Modmul(sk,eBIG,GroupOrder)
-    sBIG := Modsub(kBIG,xeBIG,GroupOrder)
-
-    return eBIG, sBIG
+   return X,a1,a2
 }
 
-func Verify(pk *ED25519.ECP, eSig *ED25519.BIG, sSig *ED25519.BIG,msg []byte,rnd *amcl.RAND)( *ED25519.BIG) {
+
+func Sign_GetR_and_c(R1 *ED25519.ECP,R2 *ED25519.ECP,X *ED25519.ECP, z []byte)  (*ED25519.ECP, *ED25519.BIG ) {
  
-    rv := pk.Mul2(eSig,GenG,sSig)
-    /*
-    fmt.Println("rv",gs)
-    */
+   //Each individual chooses their own unique r and calculates their own unique R = rG and R(sum) is the summation of all R.
+    Rsum := ED25519.NewECP()
+    Rsum.Copy(R1)
+    Rsum.Add(R2)
 
-    Hc:=sha256.New()
-    Hc.Write([]byte(EcpToBytes(rv)))
-    Hc.Write(msg)
-    hashc :=Hc.Sum(nil) 
 
-    ev := ED25519.FromBytes(hashc[:])
-    ev.Mod(GroupOrder)
+  //c also changes from BN equation. c = H(X, R(sum), z)*a. A new variable ‘a’ is introduced where each participant uses their unique public key to calculate a = H(L, P). So, c = H(X, R(sum), z)H(L, P).
 
-    return ev
+   //H(X, R(sum), z)
+   hash := sha256.New()
+   hash.Write(EcpToBytes(X))
+   hash.Write(EcpToBytes(Rsum))
+   hash.Write(z)
+   HXRzBytes := hash.Sum(nil)
+   HXRzBIG := ED25519.FromBytes(HXRzBytes[:])
+
+   return Rsum, HXRzBIG
+
+}
+
+
+func Sign_Get_s(HXRzBIG *ED25519.BIG, r *ED25519.BIG, a *ED25519.BIG, x *ED25519.BIG)  (*ED25519.BIG) {
+
+   // Each individual now must calculate their own s = r + cx 
+
+   //c = H(X, R(sum), z)*a
+   c:= ED25519.Modmul(HXRzBIG,a,GroupOrder)
+   // c cx
+   cx := ED25519.Modmul(c,x,GroupOrder)
+   // s = r + cx 
+   s := ED25519.Modadd(cx,r,GroupOrder)
+   return s
+
+}
+
+
+func Sign_Get_S(s1 *ED25519.BIG,s2 *ED25519.BIG) (*ED25519.BIG){ 
+     return ED25519.Modadd(s1,s2,GroupOrder)
+}
+
+
+func Verify_MSIG(pk1 *ED25519.ECP, pk2 *ED25519.ECP, RSum *ED25519.ECP, SSum *ED25519.BIG, msg []byte) bool {
+
+   X,_,_ := GetX_AggregatedPk(pk1,pk2)
+
+   hash := sha256.New()
+   hash.Write(EcpToBytes(X))
+   hash.Write(EcpToBytes(RSum))
+   hash.Write(msg)
+   HXRzBytes := hash.Sum(nil)
+   cBIG := ED25519.FromBytes(HXRzBytes[:])
+
+   cX := X.Mul(cBIG)
+
+   RSum.Add(cX)
+
+   SSumG := ED25519.NewECP()
+   SSumG = GenG.Mul(SSum)
+
+   fmt.Println()
+   fmt.Println(RSum.ToString())
+   fmt.Println(SSumG.ToString())
+   return RSum.Equals(SSumG)
 }
 
 
@@ -107,31 +178,53 @@ func Verify(pk *ED25519.ECP, eSig *ED25519.BIG, sSig *ED25519.BIG,msg []byte,rnd
 func main() {
    
    rnd := GetRand()
+   msg := "Hello"
 
-   sk := RandModOrder(rnd)
-   pk := GenG.Mul(sk)
+   sk1 := RandModOrder(rnd)
+   pk1 := GenG.Mul(sk1)
+   fmt.Println("pk1: ",pk1.ToString())
 
-   fmt.Println("sk ",sk.ToString())
-   fmt.Println("pk ",pk.ToString())
-
-   e:=  ED25519.NewBIG()
-   s:=  ED25519.NewBIG()
-
-   ev:=  ED25519.NewBIG()
-
-   msg := "Hello World"
+   sk2 := RandModOrder(rnd)
+   pk2 := GenG.Mul(sk2)
+   fmt.Println("pk2: ",pk2.ToString())
 
 
-   e,s = Sign(sk,[]byte(msg),rnd)
+   fmt.Println()
 
-   fmt.Println("Signature du msg", msg)
-   fmt.Println("e",e.ToString())
-   fmt.Println("s",s.ToString())
+  // Generation des r pour chacun
+   r1 := RandModOrder(rnd)
+   r2 := RandModOrder(rnd)
 
-   //Checking
-   fmt.Println("\nReceiver")
-   ev = Verify(pk, e,s, []byte(msg),rnd)
-   fmt.Println("ev",ev.ToString())
+   // envoi des R aux autres signatires avec ti=H(Ri) pour verification à reception
+   R1 := GenG.Mul(r1)
+   R2 := GenG.Mul(r2)
 
+
+   X,a1,a2 := GetX_AggregatedPk(pk1,pk2)
+
+   fmt.Println("addresse X aggrégée: ",X.ToString())
+
+   fmt.Println("\n")
+
+   // envoi des Ri aux autres signataires
+   RSum, c := Sign_GetR_and_c(R1,R2, X, []byte(msg))
+
+   s1 := Sign_Get_s(c, r1, a1, sk1)
+   s2 := Sign_Get_s(c, r2, a2, sk2)
+
+   // envoi des si aux autres signataures
+   SSum :=  Sign_Get_S(s1,s2)
+
+
+   fmt.Println("Multi Sig pour le message",msg)
+   fmt.Println("Rsum: ", RSum.ToString())
+   fmt.Println("Ssum: ", SSum.ToString())
+
+
+   // Verification pour un membre
+   // à partir des clés, on calcul les ai et la clé aggrege X
+   fmt.Println("\n\nVérification par un des membres, il doit y avoir égalité")
+
+   Verify_MSIG(pk1 , pk2 , RSum , SSum ,[]byte(msg))
 
 }
