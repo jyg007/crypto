@@ -60,6 +60,50 @@ func RandModOrder(rng *amcl.RAND) *ED25519.BIG {
 // GroupOrder is the order of the groups
 var GroupOrder = ED25519.NewBIGints(ED25519.CURVE_Order)
 
+
+func Sign(sk *ED25519.BIG, msg []byte, rnd *amcl.RAND) ( *ED25519.BIG, *ED25519.BIG) {
+   kBIG := RandModOrder(rnd)
+   rECP := GenG.Mul(kBIG)
+   // fmt.Println("r",r.ToString())
+    
+
+ // fmt.Print(msg)
+
+  // faire le sha(256) de r.ToBytes() + msg
+    H:=sha256.New()
+    H.Write([]byte(EcpToBytes(rECP)))
+    H.Write(msg)
+    hash :=H.Sum(nil) 
+
+    eBIG := ED25519.FromBytes(hash[:])
+    eBIG.Mod(GroupOrder)
+    
+    xeBIG := ED25519.Modmul(sk,eBIG,GroupOrder)
+    sBIG := Modsub(kBIG,xeBIG,GroupOrder)
+
+    return eBIG, sBIG
+}
+
+func Verify(pk *ED25519.ECP, eSig *ED25519.BIG, sSig *ED25519.BIG,msg []byte,rnd *amcl.RAND)( *ED25519.BIG) {
+ 
+    rv := pk.Mul2(eSig,GenG,sSig)
+    /*
+    fmt.Println("rv",gs)
+    */
+
+    Hc:=sha256.New()
+    Hc.Write([]byte(EcpToBytes(rv)))
+    Hc.Write(msg)
+    hashc :=Hc.Sum(nil) 
+
+    ev := ED25519.FromBytes(hashc[:])
+    ev.Mod(GroupOrder)
+
+    return ev
+}
+
+
+
 func main() {
    
    rnd := GetRand()
@@ -70,59 +114,24 @@ func main() {
    fmt.Println("sk ",sk.ToString())
    fmt.Println("pk ",pk.ToString())
 
+   e:=  ED25519.NewBIG()
+   s:=  ED25519.NewBIG()
+
+   ev:=  ED25519.NewBIG()
+
+   msg := "Hello World"
 
 
-   k := RandModOrder(rnd)
-   r := GenG.Mul(k)
-   // fmt.Println("r",r.ToString())
-    
-/*
-   msg := ED25519.FromBytes([]byte("Hello World"))
-   fmt.Print(msg)
-*/
-  // faire le sha(256) de r.ToBytes() + msg
-	H:=sha256.New()
-  H.Write([]byte(EcpToBytes(r)))
-  H.Write([]byte("Hello World"))
-	hash :=H.Sum(nil) 
+   e,s = Sign(sk,[]byte(msg),rnd)
 
-    HBIG := ED25519.FromBytes(hash[:])
-    HBIG.Mod(GroupOrder)
-    
+   fmt.Println("Signature du msg", msg)
+   fmt.Println("e",e.ToString())
+   fmt.Println("s",s.ToString())
 
-    fmt.Println()
-    fmt.Println("sender")
-    fmt.Println("e",HBIG.ToString())
-
-    xe := ED25519.Modmul(sk,HBIG,GroupOrder)
-    s := Modsub(k,xe,GroupOrder)
-
-    fmt.Println("s",s.ToString())
-
-
-    //Checking
-    fmt.Println("\nReceiver")
-
-    rv := pk.Mul2(HBIG,GenG,s)
-    /*
-    ye := pk.Mul(HBIG)
-    gs := GenG.Mul(s)
-
-    gs.Add(ye)
-
-    fmt.Println("rv",gs)
-    */
-    fmt.Println("rv",rv.ToString())
-    Hc:=sha256.New()
-    Hc.Write([]byte(EcpToBytes(rv)))
-    Hc.Write([]byte("Hello World"))
-	  hashc :=Hc.Sum(nil) 
-
-    HcBIG := ED25519.FromBytes(hashc[:])
-    HcBIG.Mod(GroupOrder)
-    
-    fmt.Println("preuve: ev=e")
-    fmt.Println("ev",HcBIG.ToString())
+   //Checking
+   fmt.Println("\nReceiver")
+   ev = Verify(pk, e,s, []byte(msg),rnd)
+   fmt.Println("ev",ev.ToString())
 
 
 }
