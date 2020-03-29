@@ -184,7 +184,7 @@ func main() {
    rnd := GetRand()
    msg := "Hello"
 
-   n:= 20
+   n:= 30
    var i int
 
    sk := make([]*ED25519.BIG,n)
