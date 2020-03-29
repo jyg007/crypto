@@ -48,18 +48,18 @@ func hashToECP(msg []byte) (*curve.ECP) {
 	var cont bool = true
 
 	// à aligner en fonction de MODBIT soit 73*8 qui designe le format max des BIG
+	// la fonction SHA doit etre aligner en fonction de la courbe et de la variable MODBIT (ici 73*8 => 584 , SHA584)
 	hBIG := make([]byte,73)
 
 	a := curve.NewBIG()
 	h := curve.NewECP()
-	// la fonction SHA doit etre aligner en fonction de la courbe et de la variable MODBIT (ici 73*8 => 584 , SHA584)
+
 	for cont {
-		hash:=sha3.New512()
+		hash:=sha3.NewShake256()
 		hash.Write([]byte(strconv.Itoa(c)))
 		hash.Write([]byte("***END***"))
 		hash.Write([]byte(msg))
-		hashBytes := hash.Sum(nil)
-		copy(hBIG,hashBytes)
+		hash.Read(hBIG)
 		a = curve.FromBytes(hBIG[:])
 		h=curve.NewECPbig(a)
 		if h.Is_infinity() {
