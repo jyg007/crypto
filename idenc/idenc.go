@@ -46,9 +46,12 @@ func RandModOrder(rng *amcl.RAND) *curve.BIG {
 }
 
 
-func H2(n *curve.FP48 , nh int) ([]byte) {
 
-// FP48 a 3 FP16 qui a 2 FP8 qui 2 FP4 qui 2 FP2 qui 2 FP
+// nh longueur du hash à generer qui depend ici de la longueur du message. 
+// hash de Gt vers {0,1}^m
+)
+func H2(n *curve.FP48 , nh int) ([]byte) {
+    // FP48 a 3 FP16 qui a 2 FP8 qui 2 FP4 qui 2 FP2 qui 2 FP
 	nn := make([]byte,int(3*2*2*2*2*(curve.MODBYTES)))    
 	n.ToBytes(nn)
 
@@ -67,6 +70,8 @@ func xor( s1 []byte, s2 []byte) ([]byte) {
 	}
 	return s
 }
+
+
 
 
 
@@ -92,7 +97,6 @@ func main() {
    c:= xor(h2,[]byte(msg))
 
    fmt.Println("R=> ", R. ToString())
-
    fmt.Println("c=> ",b64.StdEncoding.EncodeToString(xor(c,[]byte(msg))))
 
  //  H2_enc := b64.StdEncoding.EncodeToString(xor(h2,[]byte(msg)))
@@ -102,6 +106,8 @@ func main() {
    //fmt.Println(tt.ToString())
    H2_d := H2(tt,len(msg))
    m_d := xor(c, H2_d)
+
+   //message décodé
    fmt.Print(string(m_d))
 
 }
