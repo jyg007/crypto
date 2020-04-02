@@ -49,7 +49,7 @@ func RandModOrder(rng *amcl.RAND) *curve.BIG {
 
 // nh longueur du hash à generer qui depend ici de la longueur du message. 
 // hash de Gt vers {0,1}^m
-)
+
 func H2(n *curve.FP48 , nh int) ([]byte) {
     // FP48 a 3 FP16 qui a 2 FP8 qui 2 FP4 qui 2 FP2 qui 2 FP
 	nn := make([]byte,int(3*2*2*2*2*(curve.MODBYTES)))    
@@ -76,7 +76,7 @@ func xor( s1 []byte, s2 []byte) ([]byte) {
 
 
 func main() {
-    msg := "Bonjour comment allez vous Bonjour comment allez vous Bonjour comment allez vous Bonjour comment allez vous Bonjour comment allez vous Bonjour comment allez vous Bonjour comment allez vous"
+    msg := "Bonjour comment allez vous"
 
 	//initialization de la master key pour la central authority
    rnd := GetRand()
@@ -99,13 +99,19 @@ func main() {
    fmt.Println("R=> ", R. ToString())
    fmt.Println("c=> ",b64.StdEncoding.EncodeToString(xor(c,[]byte(msg))))
 
- //  H2_enc := b64.StdEncoding.EncodeToString(xor(h2,[]byte(msg)))
+   c_b64 := b64.StdEncoding.EncodeToString(xor(h2,[]byte(msg)))
+   // ce serait de le padding pour eviter de savoir le nombre de lettre ds le message
+
+
 
    //decryption avec ma clé privé
+
+   c_decoded , _ := b64.StdEncoding.DecodeString(c_b64)
+
    tt := curve.Fexp(curve.Ate(R,Sa))
    //fmt.Println(tt.ToString())
    H2_d := H2(tt,len(msg))
-   m_d := xor(c, H2_d)
+   m_d := xor([]byte(c_decoded), H2_d)
 
    //message décodé
    fmt.Print(string(m_d))
