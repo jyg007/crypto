@@ -97,7 +97,7 @@ func G1( a []byte , nh int ) ([]byte) {
 
 
 func main() {
-   msg := "Bonjour comment allez vous"
+   msg := "Bonjour comment allez vous, ceci est merveilleux"
 
 	//initialization de la master key pour la central authority
    rnd := GetRand()
@@ -112,6 +112,7 @@ func main() {
    //generation de n charactere aléatoire
    sigma :=  make([]byte, len(msg))
     _, _ = rand.Read(sigma)
+   // fmt.Println("sigma: ",b64.StdEncoding.EncodeToString(sigma))
 
     r := curve.NewBIG()
     r = H1(sigma,[]byte(msg))
@@ -128,37 +129,40 @@ func main() {
 	fmt.Println(b64.StdEncoding.EncodeToString(CW))
 
 
+    // passage des paramètres sur réseau
+	nn := make([]byte,int(3*2*2*2*(curve.MODBYTES)))     // 3 FP8 soit 3x2 FP4 soit 3x2x2 FP2 soit 3x2x2x2 FP
+	CU.ToBytes(nn,false)
+	CU_b64 := b64.StdEncoding.EncodeToString(nn)
+	CV_b64 := b64.StdEncoding.EncodeToString(CV)
+	CW_b64 := b64.StdEncoding.EncodeToString(CW)
 
 	//decryption en utilisation C <U,V,W>
 
-/*
-   Sa := Pa.Mul(s)
 
-   // Encryption avec la clé publique
-   l := RandModOrder(rnd)
-   R := GenG2.Mul(l)
-   h2 := H2(curve.Fexp(curve.Ate(Ppub,Pa)).Pow(l),len(msg))
+	//decryption des parametres recus en base64
+	tmp,_ := b64.StdEncoding.DecodeString(CU_b64)
+	CU_dec := curve.ECP8_fromBytes(tmp)
+	CV_dec, _ := b64.StdEncoding.DecodeString(CV_b64)
+	CW_dec, _ := b64.StdEncoding.DecodeString(CW_b64)
 
-   c:= xor(h2,[]byte(msg))
+    did := Qid.Mul(s)   // cle prive du receveur jeanyevs.girard@fr.ibm.com
 
-   fmt.Println("R=> ", R. ToString())
-   fmt.Println("c=> ",b64.StdEncoding.EncodeToString(xor(c,[]byte(msg))))
+    sigma_dec := xor(CV_dec,H2(curve.Fexp(curve.Ate(CU_dec,did)),len(CV_dec)))
+    //fmt.Println(b64.StdEncoding.EncodeToString(sigma_dec))
 
-   c_b64 := b64.StdEncoding.EncodeToString(xor(h2,[]byte(msg)))
-   // ce serait de le padding pour eviter de savoir le nombre de lettre ds le message
+    M_dec := xor(CW_dec,G1(sigma_dec,len(sigma_dec)))  // msg decodé
+    
+    fmt.Println()
+	fmt.Println()
+    
+    fmt.Println("Message decodé:",string(M_dec))
 
+    r_dec := H1(sigma_dec,M_dec)
+    Udec := GenG2.Mul(r_dec)
+    if CU.Equals(Udec) {
+    	fmt.Println("Parfait, U=rP")
+    } else {
+    	fmt.Println("il y a un soucis")
+    }
 
-
-   //decryption avec ma clé privé
-
-   c_decoded , _ := b64.StdEncoding.DecodeString(c_b64)
-
-   tt := curve.Fexp(curve.Ate(R,Sa))
-   //fmt.Println(tt.ToString())
-   H2_d := H2(tt,len(msg))
-   m_d := xor([]byte(c_decoded), H2_d)
-
-   //message décodé
-   fmt.Print(string(m_d))
-*/
 }
