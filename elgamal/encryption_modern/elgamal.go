@@ -2,15 +2,18 @@ package main
 
 import (
 	"fmt"
+  "encoding/hex"
 	"crypto/rand"
+  "crypto/aes"
+  "golang.org/x/crypto/sha3"
 	amcl "github.com/miracl/core/go/core"
-	"github.com/miracl/core/go/core/ED25519"
+	curve "github.com/miracl/core/go/core/ED25519"
 )
 // FieldBytes is the bytelength of the group order
-var FieldBytes = int(ED25519.MODBYTES)
+var FieldBytes = int(curve.MODBYTES)
 
 
-func EcpToBytes(E *ED25519.ECP) []byte {
+func EcpToBytes(E *curve.ECP) []byte {
 	length := 2*FieldBytes + 1
 	res := make([]byte, length)
 	E.ToBytes(res, false)
@@ -18,20 +21,18 @@ func EcpToBytes(E *ED25519.ECP) []byte {
 }
 
 // Modsub takes input BIGs a, b, m and returns a-b modulo m
-func Modsub(a, b, m *ED25519.BIG) *ED25519.BIG {
-	return Modadd(a, ED25519.Modneg(b, m), m)
+func Modsub(a, b, m *curve.BIG) *curve.BIG {
+	return Modadd(a, curve.Modneg(b, m), m)
 }
 
 // Modadd takes input BIGs a, b, m, and returns a+b modulo m
-func Modadd(a, b, m *ED25519.BIG) *ED25519.BIG {
+func Modadd(a, b, m *curve.BIG) *curve.BIG {
 	c := a.Plus(b)
 	c.Mod(m)
 	return c
 }
 
-var GenG = ED25519.NewECPbigs(
-	ED25519.NewBIGints(ED25519.CURVE_Gx),
-	ED25519.NewBIGints(ED25519.CURVE_Gy))
+var GenG = curve.ECP_generator()
 
 // GetRand returns a new *amcl.RAND with a fresh seed
 func GetRand() (*amcl.RAND) {
@@ -48,63 +49,73 @@ func GetRand() (*amcl.RAND) {
 	return rng
 }
 
-func RandModOrder(rng *amcl.RAND) *ED25519.BIG {
+func RandModOrder(rng *amcl.RAND) *curve.BIG {
 	// curve order q
-	q := ED25519.NewBIGints(ED25519.CURVE_Order)
+	q := curve.NewBIGints(curve.CURVE_Order)
 
 	// Take random element in Zq
-	return ED25519.Randomnum(q, rng)
+	return curve.Randomnum(q, rng)
 }
 
 // GroupOrder is the order of the groups
-var GroupOrder = ED25519.NewBIGints(ED25519.CURVE_Order)
+var GroupOrder = curve.NewBIGints(curve.CURVE_Order)
 
-// Pub key du receiver en entrée
-func Encrypt(A *ED25519.ECP, m string, rnd *amcl.RAND) ( *ED25519.ECP, *ED25519.ECP) {
+
+func H(a *curve.ECP, b *curve.ECP ) ([]byte) {
+   
+  aAsBytes := EcpToBytes(a)
+  bAsBytes := EcpToBytes(b) 
+
+  hAsBytes := make([]byte,32)   //32 pour générer une clé AES-256
+
+  hash:=sha3.NewShake256()
+  hash.Write(aAsBytes)
+  hash.Write(bAsBytes)
+  hash.Read(hAsBytes)
+  return hAsBytes
+}
+
+// Pub key H du receiver en entrée
+func Encrypt(h *curve.ECP, m []byte , rnd *amcl.RAND) ( *curve.ECP, []byte) {
   //Encryption with public
-  k := RandModOrder(rnd)
-  kA :=A.Mul(k)  
+  b := RandModOrder(rnd)
+  V:=h.Mul(b)  
 
-  K := GenG.Mul(k)
+  U := GenG.Mul(b)
 
-  //limitation à des blocks de 20 octets
-  msg := make([]byte,ED25519.MODBYTES)
-  mm := msg[ED25519.MODBYTES-uint(len(m)):]
+  k:=H(U,V)
 
-  copy(mm,[]byte(m))
-  //msg[0] = 2
-  fmt.Println(mm)
+  
+   cy, err := aes.NewCipher(k)  
+   if err != nil {  
+      fmt.Errorf("NewCipher(%d bytes) = %s", len(k), err)  
+      panic(err)  
+   }  
+   c := make([]byte, len(m))  
+   cy.Encrypt(c, m)  
 
-  Mbig := ED25519.FromBytes(msg)
-  Mbig.Mod(GroupOrder)
-
-  M := ED25519.NewECPbig(Mbig)
-
-  fmt.Println("M",M.ToString())
-
-  kA.Add(M) 
-
-  C := ED25519.NewECP()
-
-  C.Copy(kA)
-  fmt.Println("C crypté",C.ToString())
-
-  return K, C
+   return U, c
 
 }
 
 // priv key du receiver en entrée
-func Decrypt(a *ED25519.BIG, K *ED25519.ECP, C *ED25519.ECP, rnd *amcl.RAND) []byte {
-   S := K.Mul(a) 
-   C.Sub(S)
+func Decrypt(a *curve.BIG, U *curve.ECP, c []byte) []byte {
+   V := U.Mul(a) 
+
+   k:=H(U,V)
    
-   MDec := ED25519.NewECP()
-   MDec.Copy(C)
+  // ciphertext, _ := hex.DecodeString(ct)  
+   cy, err := aes.NewCipher(k)  
+   if err != nil {  
+      fmt.Errorf("NewCipher(%d bytes) = %s", len(k), err)  
+      panic(err)  
+   }  
+   plain := make([]byte, len(c))  
+   cy.Decrypt(plain, c)  
+   //fmt.Printf("AES Decrypyed Text:  %s\n", string(plain) )
+   
 
-   b := make([]byte,ED25519.MODBYTES)
-   MDec.GetX().ToBytes(b)
-
-   return b
+   return plain
 }
 
 
@@ -112,18 +123,34 @@ func main() {
    
    rnd := GetRand()
 
-   // private and public keys for Alice 
+   // private and public keys for Alice  (a,A)
+
    a := RandModOrder(rnd)
    A := GenG.Mul(a)
 
-   K := ED25519.NewECP()
-   C := ED25519.NewECP()
-   var u []byte 
-   
+   MSG:="Comment allez vous"
 
-   K, C = Encrypt(A,"Wlobabubli",rnd)
-   u = Decrypt(a, K,C,rnd)
-   fmt.Print(string(u)+"\n\n")
+
+  //encryption, utilisation de A uniquement
+  u_AsECP, C_AsBytes := Encrypt(A,[]byte(MSG),rnd)
+
+  u_AsHex := hex.EncodeToString(EcpToBytes(u_AsECP))
+  C_AsHex := hex.EncodeToString(C_AsBytes)
+
+  fmt.Println()
+  fmt.Println("u:",u_AsHex)
+  fmt.Println("C:",C_AsHex)
+  fmt.Println()
+ 
+
+  //decryption en utilisation C <U,V,W> et a
+ 
+  tmp,_ := hex.DecodeString(u_AsHex)
+  u_AsECP_dec := curve.ECP_fromBytes(tmp)
+  C_AsBytes_dec, _ := hex.DecodeString(C_AsHex)
+
+   m := Decrypt(a, u_AsECP_dec, C_AsBytes_dec)
+   fmt.Print("decrypted :=> " ,string(m)+"\n\n")
 
 
 }
