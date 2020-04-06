@@ -109,10 +109,23 @@ func Hash_AES_Key(n *curve.FP48 ) ([]byte) {
 }
 
 
-
+	
+type node struct {
+    parent int  // index of the parent node
+    k  int     	//threshold 1 pour OR et nombre de leafs si AND
+    attr int     // attribut teste ici
+}
 
 
 func main() {
+
+	// construction de la policy
+	policy := make([]node,3)
+
+	policy[0] = node{-1,1,-1}
+	policy[1] = node{ 0,-1,0}
+	policy[2] = node{ 0,-1,1}
+
 
     //nombre d attribut
 	attr_nb :=2
@@ -156,9 +169,13 @@ func main() {
  	leaves_nb:=2
 
     leaves_att := make([]int,leaves_nb)
-    leaves_att[0]=0
-    leaves_att[1]=1
+    leaves_att[0] = policy[1].attr
+    leaves_att[1] = policy[2].attr
 
+    leaves_nodes := make([]*node,leaves_nb)
+    
+    leaves_nodes[0] =  &policy[1]
+    leaves_nodes[1] =  &policy[2]
 
    // ******************************************************
    //KEYGEN
