@@ -114,11 +114,23 @@ func Hash_AES_Key(n *curve.FP48 ) ([]byte) {
 
 func main() {
 
-    a1 := "ibm=y"
-    a2 := "airbus=y"
-
     //nombre d attribut
-	n:=2 
+	attr_nb :=2
+
+	//tableau à deux attribut que l on definit avec une valeur plutot qu un bit
+	// a represente les attributes de celui qui veut accesder à la preuve
+	a :=make([]string,attr_nb)
+
+    a[0]= "employeibm"
+    a[1] = "employeairbus"
+
+
+    // pareil mais utilisé pour la création de la preuve
+	attr_proof :=make([]string,attr_nb)
+
+    attr_proof[0]= "employeibm"
+    attr_proof[1] = "employeairbus"
+
 
     //MASTER
 	//initialization de la master key pour la central authority
@@ -138,23 +150,33 @@ func main() {
     //  on a deux conditions pour test a1 et q2  q1(0)=qR(r1) soit forcement s et de meme q2(0)=qR(r2) soit forcement s egamenet
     //   donc q1(x)=q2(x)=qR(x)=s  
 
- 
+  
+    // Definition de la policy  => l arbre a deux attributs testé et on cree le tableau att qui nous donne l index de l attribut tester pour chaque feuille de l arbre
+    // Donc dans un cas attr1 ou attr2 on a
+ 	leaves_nb:=2
+
+    leaves_att := make([]int,leaves_nb)
+    leaves_att[0]=0
+    leaves_att[1]=1
 
 
    // ******************************************************
    //KEYGEN
    // ******************************************************
    
+   var i int
    s := RandModOrder(rnd)   // je pense propre à la policy
    
-   Dj := make([]*curve.ECP,n)
-   Djprime := make([]*curve.ECP8,n)
+   Dj := make([]*curve.ECP,attr_nb)
+   Djprime := make([]*curve.ECP8,attr_nb)
  
    // (r, r1,r2) defini par utilisateur
    r := RandModOrder(rnd)
-   r1 := RandModOrder(rnd)
-   r2 := RandModOrder(rnd)
 
+   r_attr := make([]*curve.BIG,attr_nb)
+   for i = 0 ; i < attr_nb ; i++ {
+   	  r_attr[i] = RandModOrder(rnd)
+   }
 
    tmp1 := curve.Modadd(alpha,r, GroupOrder )
    betainv := curve.NewBIGcopy(beta)
@@ -164,21 +186,18 @@ func main() {
 
    // q1(0) = s et q2(0) = s ici, sinon voir doc et poly de Lagrange pour interpolation
  
-   tmp6 := curve.ECP_mapit([]byte(a1)).Mul(r1)
-   tmp7 := GenG1.Mul(r)
-   tmp7.Add(tmp6)
-   Dj[0] = curve.NewECP()
-   Dj[0].Copy(tmp7)
- 
-   tmp6 = curve.ECP_mapit([]byte(a2)).Mul(r2)
-   tmp7 = GenG1.Mul(r)
-   tmp7.Add(tmp6)
-   Dj[1] = curve.NewECP()
-   Dj[1].Copy(tmp7)
+   // creation de D pour tous les attributs
+
+    for i = 0 ; i < attr_nb ; i++ {
+ 	  tmp6 := curve.ECP_mapit([]byte(a[i])).Mul(r_attr[i])
+   	  tmp7 := GenG1.Mul(r)
+      tmp7.Add(tmp6)
+      Dj[i] = curve.NewECP()
+      Dj[i].Copy(tmp7)
+      Djprime[i] = GenG2.Mul(r_attr[i])
+   }
  
 
-   Djprime[0] = GenG2.Mul(r1)
-   Djprime[1] = GenG2.Mul(r2)
 
   // Le user prend D, Dj et Djprime en tant que private key
 
@@ -197,22 +216,24 @@ func main() {
 
    // voir plus haut les fonctions q sont constants et toujours égales à s (clé de la policy)
    
-   Cj := make([]*curve.ECP8,n)
-   Cjprime := make([]*curve.ECP,n)
+   Cj := make([]*curve.ECP8,leaves_nb)
+   Cjprime := make([]*curve.ECP,leaves_nb)
 
-   Cjprime[0] = curve.ECP_mapit([]byte("ibm=y")).Mul(s)
-   Cjprime[1] = curve.ECP_mapit([]byte("airbus=y")).Mul(s)
-
-   Cj[0] = GenG2.Mul(s)
-   Cj[1] = GenG2.Mul(s)
-
-
+   // ici on parcourt les feuilles et non les listes d attributs.  Exemple un attribut peut revenir deux fois.
+   for i = 0 ; i < leaves_nb ; i++ {
+       Cjprime[i] = curve.ECP_mapit([]byte(attr_proof[leaves_att[i]])).Mul(s)
+       Cj[i] = GenG2.Mul(s)
+   }
+   
 
    // ******************************************************
    // DECRYPT
    // ******************************************************
    
    // à coupler à de l AES qui se sert de m (utiliser un sha3 shake pour generer la cle AES)
+
+
+
 
    eCD1 := curve.Fexp(curve.Ate(Cj[0],Dj[0]))
    eCD1_prime := curve.Fexp(curve.Ate(Djprime[0],Cjprime[0]))
@@ -225,6 +246,8 @@ func main() {
    eCD2_prime.Inverse()
    eCD2.Mul(eCD2_prime)
 
+
+   // on n utilise que le premier indice.
    A := curve.NewFP48copy(eCD1)
    A.Inverse()
 
