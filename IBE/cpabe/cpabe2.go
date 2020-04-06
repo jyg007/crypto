@@ -6,7 +6,7 @@ package main
 import (
 	"fmt"
 	 hex "encoding/hex"
-	//"os"
+	"os"
 //	"strconv"
 	"crypto/rand"
 	amcl "github.com/miracl/core/go/core"
@@ -125,12 +125,15 @@ func (n *node) Init(rnd *amcl.RAND ,parent int, leaves []int , threshold int, at
 	n.leaves = leaves
 	n.threshold = threshold
 	n.attr = attr
+
+	n.x = make([]*curve.BIG, threshold )
+	n.y = make([]*curve.BIG, threshold )
+	//valeur en zero defini par rapport aux parent
+
 	if (threshold > 1 ) {
-		n.x = make([]*curve.BIG, threshold-1 )
-		n.y =  make([]*curve.BIG, threshold-1 )
-		for  j:= 1;j<= threshold;j++ {
-			n.x[j-1] = curve.NewBIGint(j)
-			n.y[j-1] = RandModOrder(rnd)
+		for  j:= 1;j< threshold;j++ {
+			n.x[j] = curve.NewBIGint(j)
+			n.y[j] = RandModOrder(rnd)
 		}
 	}
 }
@@ -150,6 +153,10 @@ func (n *node) Lagrange_Interpolate(x *curve.BIG) (*curve.BIG) {
 		
 		for j := 0; j < len(n.x); j++ {
 			if i != j {
+			//	fmt.Println(x.ToString())
+			//	fmt.Println(j)
+			//	fmt.Println(n.x[j].ToString())
+				
 				tmp1 = Modsub(x,n.x[j],GroupOrder)  
 				tmp2 = Modsub(n.x[i],n.x[j],GroupOrder)
 				tmp2.Invmodp(GroupOrder)
@@ -164,22 +171,28 @@ func (n *node) Lagrange_Interpolate(x *curve.BIG) (*curve.BIG) {
 }
  
 
-func  getq(n *[]node, s  *curve.BIG ,   k int, x int)  ( *curve.BIG) {
+func  getq_zero(n *[]*node, s  *curve.BIG ,   k int, x int)  ( *curve.BIG) {
+	fmt.Println("-- ",k," ",x)
 	if (x ==0) {
 		if ( k ==0 ) {
-			fmt.Println("k =>" ,(*n)[k].threshold)
+			fmt.Println("k =>" ,(*(*n)[k]).threshold)
+			//(*(*n)[k]).x[0] = curve.NewBIGint(0)
+			//(*(*n)[k]).y[0] = s
 			return s	
 		}
-		return getq(n, s, (*n)[k].parent,k)
+
+		(*(*n)[k]).x[0] = curve.NewBIGint(0)
+		(*(*n)[k]).y[0] = getq_zero(n, s, (*(*n)[k]).parent,k)
+		return (*(*n)[k]).y[0]
 	}
 	X := curve.NewBIGint(x)
-	return (*n)[k].Lagrange_Interpolate(X)
+	return (*(*n)[k]).Lagrange_Interpolate(X)
 }
 
 
 func main() {
    	rnd := GetRand()
-
+    
 	// construction de la policy
 	policy := make([]*node,3)
 	for i:=0 ; i< 3 ; i++ {
@@ -187,9 +200,48 @@ func main() {
 	}
 	//  parent   | leaves | threeshold  | attributes #
 	// Threashold how leaves should be true
-	policy[0].Init(rnd, -1, []int{1 , 2} , 1,-1 )
-	policy[1].Init(rnd,  0, []int{} , -1 , 0 )
-	policy[2].Init(rnd,  0, []int{} , -1 , 1  )
+	policy[0].Init(rnd, -1, []int{1 , 2} , 2,-1 )
+		
+	S := RandModOrder(rnd)   // je pense propre à la policy	
+	policy[0].x[0] = curve.NewBIGint(0)
+	policy[0].y[0] = S
+	
+	policy[1].Init(rnd,  0, []int{} , 1 , 0 )
+	policy[2].Init(rnd,  0, []int{} , 1 , 1  )
+
+
+   fmt.Println("s:",S.ToString())
+
+   q10 := getq_zero(&policy,S,1,0)
+   fmt.Println("q10:",q10.ToString())
+
+   q20 := getq_zero(&policy,S,2,0)
+   fmt.Println("q20:",q20.ToString())
+   
+   fmt.Println()
+   os.Exit(2)
+
+    // Modelisation polynomiqle (voir lecture 14) de condition a ou b (simple...)
+    // on part ici dans un test a1 OR a2 
+    //  Le polynome est donc de degre 0 (condition Or sur les racine de polynome) .  soit de la forme qR(x) = i  , on a dont qR(0) = s qui force i = s
+    //  on a deux conditions pour test a1 et q2  q1(0)=qR(r1) soit forcement s et de meme q2(0)=qR(r2) soit forcement s egamenet
+    //   donc q1(x)=q2(x)=qR(x)=s  
+
+  
+    // Definition de la policy  => l arbre a deux attributs testé et on cree le tableau att qui nous donne l index de l attribut tester pour chaque feuille de l arbre
+    // Donc dans un cas attr1 ou attr2 on a
+ 	leaves_nb:=2
+
+    leaves_att := make([]int,leaves_nb)
+    leaves_att[0] = policy[1].attr
+    leaves_att[1] = policy[2].attr
+
+    leaves_nodes := make([]*node,leaves_nb)
+    
+    leaves_nodes[0] =  policy[1]
+    leaves_nodes[1] =  policy[2]
+
+
 
 
     //nombre d attribut
@@ -222,25 +274,6 @@ func main() {
     // pk => G1, h ealpha 
 
 
-    // Modelisation polynomiqle (voir lecture 14) de condition a ou b (simple...)
-    // on part ici dans un test a1 OR a2 
-    //  Le polynome est donc de degre 0 (condition Or sur les racine de polynome) .  soit de la forme qR(x) = i  , on a dont qR(0) = s qui force i = s
-    //  on a deux conditions pour test a1 et q2  q1(0)=qR(r1) soit forcement s et de meme q2(0)=qR(r2) soit forcement s egamenet
-    //   donc q1(x)=q2(x)=qR(x)=s  
-
-  
-    // Definition de la policy  => l arbre a deux attributs testé et on cree le tableau att qui nous donne l index de l attribut tester pour chaque feuille de l arbre
-    // Donc dans un cas attr1 ou attr2 on a
- 	leaves_nb:=2
-
-    leaves_att := make([]int,leaves_nb)
-    leaves_att[0] = policy[1].attr
-    leaves_att[1] = policy[2].attr
-
-    leaves_nodes := make([]*node,leaves_nb)
-    
-    leaves_nodes[0] =  policy[1]
-    leaves_nodes[1] =  policy[2]
 
    // ******************************************************
    //KEYGEN
@@ -313,9 +346,6 @@ func main() {
    // ******************************************************
    
    // à coupler à de l AES qui se sert de m (utiliser un sha3 shake pour generer la cle AES)
-
-
-
 
    eCD1 := curve.Fexp(curve.Ate(Cj[0],Dj[0]))
    eCD1_prime := curve.Fexp(curve.Ate(Djprime[0],Cjprime[0]))
