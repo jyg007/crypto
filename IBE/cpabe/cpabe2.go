@@ -112,19 +112,84 @@ func Hash_AES_Key(n *curve.FP48 ) ([]byte) {
 	
 type node struct {
     parent int  // index of the parent node
-    k  int     	//threshold 1 pour OR et nombre de leafs si AND
-    attr int     // attribut teste ici
+    leaves []int
+    threshold  int     	//threshold 1 pour OR et nombre de leafs si AND
+    attr int     // index de l attribut teste ici
+    x []*curve.BIG
+    y []*curve.BIG
+}
+
+
+func (n *node) Init(rnd *amcl.RAND ,parent int, leaves []int , threshold int, attr int)  {
+	n.parent = parent
+	n.leaves = leaves
+	n.threshold = threshold
+	n.attr = attr
+	if (threshold > 1 ) {
+		n.x = make([]*curve.BIG, threshold-1 )
+		n.y =  make([]*curve.BIG, threshold-1 )
+		for  j:= 1;j<= threshold;j++ {
+			n.x[j-1] = curve.NewBIGint(j)
+			n.y[j-1] = RandModOrder(rnd)
+		}
+	}
+}
+
+
+func Modsub(a, b, m *curve.BIG) *curve.BIG {
+        return curve.Modadd(a, curve.Modneg(b, m), m)
+}
+
+
+func (n *node) Lagrange_Interpolate(x *curve.BIG) (*curve.BIG) {
+	est := curve.NewBIGint(0)
+	for i := 0; i < len(n.x); i++ {
+		prod := curve.NewBIGcopy(n.y[i])
+		tmp1 := curve.NewBIG()
+		tmp2 := curve.NewBIG()
+		
+		for j := 0; j < len(n.x); j++ {
+			if i != j {
+				tmp1 = Modsub(x,n.x[j],GroupOrder)  
+				tmp2 = Modsub(n.x[i],n.x[j],GroupOrder)
+				tmp2.Invmodp(GroupOrder)
+				prod = curve.Modmul(prod,tmp1,GroupOrder)
+				prod = curve.Modmul(prod,tmp2,GroupOrder)
+			}
+		}
+		est = curve.Modadd(prod,est,GroupOrder)
+	}
+
+	return est
+}
+ 
+
+func  getq(n *[]node, s  *curve.BIG ,   k int, x int)  ( *curve.BIG) {
+	if (x ==0) {
+		if ( k ==0 ) {
+			fmt.Println("k =>" ,(*n)[k].threshold)
+			return s	
+		}
+		return getq(n, s, (*n)[k].parent,k)
+	}
+	X := curve.NewBIGint(x)
+	return (*n)[k].Lagrange_Interpolate(X)
 }
 
 
 func main() {
+   	rnd := GetRand()
 
 	// construction de la policy
-	policy := make([]node,3)
-
-	policy[0] = node{-1,1,-1}
-	policy[1] = node{ 0,-1,0}
-	policy[2] = node{ 0,-1,1}
+	policy := make([]*node,3)
+	for i:=0 ; i< 3 ; i++ {
+		policy[i] = new(node)
+	}
+	//  parent   | leaves | threeshold  | attributes #
+	// Threashold how leaves should be true
+	policy[0].Init(rnd, -1, []int{1 , 2} , 1,-1 )
+	policy[1].Init(rnd,  0, []int{} , -1 , 0 )
+	policy[2].Init(rnd,  0, []int{} , -1 , 1  )
 
 
     //nombre d attribut
@@ -147,7 +212,7 @@ func main() {
 
     //MASTER
 	//initialization de la master key pour la central authority
-   	rnd := GetRand()
+
     alpha := RandModOrder(rnd)
 	beta := RandModOrder(rnd)
     h := GenG1.Mul(beta)
@@ -174,8 +239,8 @@ func main() {
 
     leaves_nodes := make([]*node,leaves_nb)
     
-    leaves_nodes[0] =  &policy[1]
-    leaves_nodes[1] =  &policy[2]
+    leaves_nodes[0] =  policy[1]
+    leaves_nodes[1] =  policy[2]
 
    // ******************************************************
    //KEYGEN
