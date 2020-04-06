@@ -6,7 +6,7 @@ package main
 import (
 	"fmt"
 	 hex "encoding/hex"
-	"os"
+//	"os"
 //	"strconv"
 	"crypto/rand"
 	amcl "github.com/miracl/core/go/core"
@@ -175,12 +175,13 @@ func  getq_zero(n *[]*node, s  *curve.BIG ,   k int, x int)  ( *curve.BIG) {
 	fmt.Println("-- ",k," ",x)
 	if (x ==0) {
 		if ( k ==0 ) {
+			// en fait jamais appelé ?
 			fmt.Println("k =>" ,(*(*n)[k]).threshold)
 			//(*(*n)[k]).x[0] = curve.NewBIGint(0)
 			//(*(*n)[k]).y[0] = s
 			return s	
 		}
-
+		fmt.Println("setting 0 for k ",k)
 		(*(*n)[k]).x[0] = curve.NewBIGint(0)
 		(*(*n)[k]).y[0] = getq_zero(n, s, (*(*n)[k]).parent,k)
 		return (*(*n)[k]).y[0]
@@ -200,26 +201,26 @@ func main() {
 	}
 	//  parent   | leaves | threeshold  | attributes #
 	// Threashold how leaves should be true
-	policy[0].Init(rnd, -1, []int{1 , 2} , 2,-1 )
+	policy[0].Init(rnd, -1, []int{1 , 2} , 1,-1 )
 		
-	S := RandModOrder(rnd)   // je pense propre à la policy	
+	s := RandModOrder(rnd)   // je pense propre à la policy	
 	policy[0].x[0] = curve.NewBIGint(0)
-	policy[0].y[0] = S
+	policy[0].y[0] = s
 	
 	policy[1].Init(rnd,  0, []int{} , 1 , 0 )
 	policy[2].Init(rnd,  0, []int{} , 1 , 1  )
 
 
-   fmt.Println("s:",S.ToString())
+   fmt.Println("s:",s.ToString())
 
-   q10 := getq_zero(&policy,S,1,0)
+   q10 := getq_zero(&policy,s,1,0)
    fmt.Println("q10:",q10.ToString())
 
-   q20 := getq_zero(&policy,S,2,0)
+   q20 := getq_zero(&policy,s,2,0)
    fmt.Println("q20:",q20.ToString())
    
    fmt.Println()
-   os.Exit(2)
+ //  os.Exit(2)
 
     // Modelisation polynomiqle (voir lecture 14) de condition a ou b (simple...)
     // on part ici dans un test a1 OR a2 
@@ -232,16 +233,14 @@ func main() {
     // Donc dans un cas attr1 ou attr2 on a
  	leaves_nb:=2
 
-    leaves_att := make([]int,leaves_nb)
+/*    leaves_att := make([]int,leaves_nb)
     leaves_att[0] = policy[1].attr
     leaves_att[1] = policy[2].attr
-
-    leaves_nodes := make([]*node,leaves_nb)
+*/
+    leaves_nodes := make([]int,leaves_nb)
     
-    leaves_nodes[0] =  policy[1]
-    leaves_nodes[1] =  policy[2]
-
-
+    leaves_nodes[0] = 1
+    leaves_nodes[1] = 2
 
 
     //nombre d attribut
@@ -280,7 +279,7 @@ func main() {
    // ******************************************************
    
    var i int
-   s := RandModOrder(rnd)   // je pense propre à la policy
+  // s := RandModOrder(rnd)   // je pense propre à la policy
    
    Dj := make([]*curve.ECP,attr_nb)
    Djprime := make([]*curve.ECP8,attr_nb)
@@ -336,7 +335,10 @@ func main() {
 
    // ici on parcourt les feuilles et non les listes d attributs.  Exemple un attribut peut revenir deux fois.
    for i = 0 ; i < leaves_nb ; i++ {
-       Cjprime[i] = curve.ECP_mapit([]byte(attr_proof[leaves_att[i]])).Mul(s)
+   	   q0 := getq_zero(&policy,s,leaves_nodes[i],0)
+   	   fmt.Println(attr_proof[policy[leaves_nodes[i]].attr])
+   	   fmt.Println(q0.ToString())
+       Cjprime[i] = curve.ECP_mapit([]byte(attr_proof[policy[leaves_nodes[i]].attr])).Mul(q0)
        Cj[i] = GenG2.Mul(s)
    }
    
