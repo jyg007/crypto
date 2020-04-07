@@ -6,13 +6,30 @@ package main
 import (
 	"fmt"
 	 hex "encoding/hex"
-//	"os"
+	"os"
 //	"strconv"
 	"crypto/rand"
 	amcl "github.com/miracl/core/go/core"
 	curve "github.com/miracl/core/go/core/BLS48581"
 	"golang.org/x/crypto/sha3"
 )
+
+type Cipher struct {
+	C *curve.ECP
+	Cprime *curve.FP48
+	Cj []*curve.ECP8
+	Cjprime []*curve.ECP
+}
+
+type SecretKey struct {
+	D *curve.ECP8
+	Dj []*curve.ECP
+	Djprime []*curve.ECP8
+}
+
+
+const OR=1
+const AND=3
 
 var GenG1 = curve.ECP_generator()
 var GenG2 = curve.ECP8_generator()
@@ -115,7 +132,7 @@ type node struct {
     leaves []int
     threshold  int     	//threshold 1 pour OR et nombre de leafs si AND
     attr int     // index de l attribut teste ici
-    x []*curve.BIG
+    x []*curve.BIG   // represente les points du polynome au noeud en fonction du threshold
     y []*curve.BIG
 }
 
@@ -166,9 +183,33 @@ func (n *node) Lagrange_Interpolate(x *curve.BIG) (*curve.BIG) {
 		}
 		est = curve.Modadd(prod,est,GroupOrder)
 	}
-
 	return est
 }
+
+// utilisé pour le decryption - ne connait pas la valeur de y
+func Lagrange_Interpolate2(n []*curve.BIG, i int) (*curve.BIG) {
+	
+	x := curve.NewBIGint(0)
+	
+
+		prod := curve.NewBIGint(1)
+		tmp1 := curve.NewBIG()
+		tmp2 := curve.NewBIG()
+		
+		for j := 0; j < len(n); j++ {
+			if i != j {
+
+				tmp1 = Modsub(x,n[j],GroupOrder)  
+				tmp2 = Modsub(n[i],n[j],GroupOrder)
+				tmp2.Invmodp(GroupOrder)
+				prod = curve.Modmul(prod,tmp1,GroupOrder)
+				prod = curve.Modmul(prod,tmp2,GroupOrder)
+			}
+		}
+		
+	return prod
+}
+
  
 
 func  getq_zero(n *[]*node, s  *curve.BIG ,   k int, x int)  ( *curve.BIG) {
@@ -191,6 +232,94 @@ func  getq_zero(n *[]*node, s  *curve.BIG ,   k int, x int)  ( *curve.BIG) {
 }
 
 
+//********************************************************************************************************************************************************************
+//********************************************************************************************************************************************************************
+
+func Decrypt( SK *SecretKey , CipherData *Cipher, n *[]*node , attr_user *[]string , x int)  (*curve.FP48) {
+	offset_leaves := 1  //(indique le noeud ou commence la premiere leave)
+	fmt.Println("Calcul de F_",x);
+	if len((*(*n)[x]).leaves)==0 {
+
+		//calcul Lagrangien
+		i := (*n)[x].attr   // attribut du noeud
+
+		fmt.Println("***",x-offset_leaves,i)   //  decalage entre tableau noeuds totaux et tableau des leaves
+		eCD := curve.Fexp(curve.Ate(CipherData.Cj[x-offset_leaves],SK.Dj[i]))
+   		eCD_prime := curve.Fexp(curve.Ate(SK.Djprime[i],CipherData.Cjprime[x-offset_leaves]))
+   		eCD_prime.Inverse()
+   		eCD.Mul(eCD_prime)
+
+
+  		A := curve.NewFP48copy(eCD)
+   		A.Inverse()
+
+   		T1 := curve.Fexp(curve.Ate(SK.D,CipherData.C))
+   		T1.Mul(A)
+   		T1.Inverse()
+
+   		Cp := curve.NewFP48copy(CipherData.Cprime)
+ 	    Cp.Mul(T1)
+
+
+        fmt.Println("Key pour le decodage: ",hex.EncodeToString(Hash_AES_Key(Cp)))
+
+        //	fmt.Println("===",x,eCD.ToString())
+
+		return eCD
+	}
+
+
+
+
+	FFx := make([]*curve.FP48,2) //A CORRRIGER AVEC LA BONNE LONGUER
+	FFx2 := make([]*curve.BIG,2)
+	index:=0
+	for i:=0 ; i< len((*(*n)[x]).leaves);i++ { 
+		leave_node := (*n)[ (*(*n)[x]).leaves[i] ]
+		if ((*attr_user)[leave_node.attr] == "" ) {
+			fmt.Println("Param non defini pour l utilisateur:", (*attr_user)[leave_node.attr])
+		} else {
+
+				FFx[index] =Decrypt(SK, CipherData, n, attr_user, (*(*n)[x]).leaves[i])
+				FFx2[index] = curve.NewBIGint((*(*n)[x]).leaves[i])
+				index++
+		}
+	}
+
+
+	tmp := Lagrange_Interpolate2(FFx2,0)
+    tmp1 := FFx[0].Pow(tmp)
+
+	tmp2 := Lagrange_Interpolate2(FFx2,1)
+    tmp3 := FFx[1].Pow(tmp2)
+
+    tmp3.Mul(tmp1)
+
+
+
+    	A := curve.NewFP48copy(tmp3)
+   		A.Inverse()
+
+   		T1 := curve.Fexp(curve.Ate(SK.D,CipherData.C))
+   		T1.Mul(A)
+   		T1.Inverse()
+
+   		Cp := curve.NewFP48copy(CipherData.Cprime)
+ 	    Cp.Mul(T1)
+
+
+         fmt.Println("**Key pour le decodage: ",hex.EncodeToString(Hash_AES_Key(Cp)))
+	return tmp3
+}
+
+
+
+//********************************************************************************************************************************************************************
+//********************************************************************************************************************************************************************
+//********************************************************************************************************************************************************************
+//********************************************************************************************************************************************************************
+//********************************************************************************************************************************************************************
+
 func main() {
    	rnd := GetRand()
     
@@ -201,14 +330,15 @@ func main() {
 	}
 	//  parent   | leaves | threeshold  | attributes #
 	// Threashold how leaves should be true
-	policy[0].Init(rnd, -1, []int{1 , 2} , 1,-1 )
+	policy[0].Init(rnd, -1, []int{1 , 2} , AND,-1 )  //noeud root
+    policy[1].Init(rnd,  0, []int{} , OR , 0 )      //noeud 1
+	policy[2].Init(rnd,  0, []int{} , OR , 1  )     //noeud 2
 		
+	// initialization 	
 	s := RandModOrder(rnd)   // je pense propre à la policy	
 	policy[0].x[0] = curve.NewBIGint(0)
 	policy[0].y[0] = s
 	
-	policy[1].Init(rnd,  0, []int{} , 1 , 0 )
-	policy[2].Init(rnd,  0, []int{} , 1 , 1  )
 
 
    fmt.Println("s:",s.ToString())
@@ -233,15 +363,10 @@ func main() {
     // Donc dans un cas attr1 ou attr2 on a
  	leaves_nb:=2
 
-/*    leaves_att := make([]int,leaves_nb)
-    leaves_att[0] = policy[1].attr
-    leaves_att[1] = policy[2].attr
-*/
     leaves_nodes := make([]int,leaves_nb)
     
     leaves_nodes[0] = 1
     leaves_nodes[1] = 2
-
 
     //nombre d attribut
 	attr_nb :=2
@@ -251,7 +376,10 @@ func main() {
 	a :=make([]string,attr_nb)
 
     a[0]= "employeibm"
+    //a[0] = ""
     a[1] = "employeairbus"
+
+
 
 
     // pareil mais utilisé pour la création de la preuve
@@ -277,12 +405,16 @@ func main() {
    // ******************************************************
    //KEYGEN
    // ******************************************************
+
+
+
+   SK := new(SecretKey)
    
    var i int
   // s := RandModOrder(rnd)   // je pense propre à la policy
    
-   Dj := make([]*curve.ECP,attr_nb)
-   Djprime := make([]*curve.ECP8,attr_nb)
+   SK.Dj = make([]*curve.ECP,attr_nb)
+   SK.Djprime = make([]*curve.ECP8,attr_nb)
  
    // (r, r1,r2) defini par utilisateur
    r := RandModOrder(rnd)
@@ -296,7 +428,7 @@ func main() {
    betainv := curve.NewBIGcopy(beta)
    betainv.Invmodp(GroupOrder)
    puis := curve.Modmul(tmp1,betainv,GroupOrder)
-   D := GenG2.Mul(puis)
+   SK.D = GenG2.Mul(puis)
 
    // q1(0) = s et q2(0) = s ici, sinon voir doc et poly de Lagrange pour interpolation
  
@@ -306,11 +438,12 @@ func main() {
  	  tmp6 := curve.ECP_mapit([]byte(a[i])).Mul(r_attr[i])
    	  tmp7 := GenG1.Mul(r)
       tmp7.Add(tmp6)
-      Dj[i] = curve.NewECP()
-      Dj[i].Copy(tmp7)
-      Djprime[i] = GenG2.Mul(r_attr[i])
+      SK.Dj[i] = curve.NewECP()
+      SK.Dj[i].Copy(tmp7)
+      SK.Djprime[i] = GenG2.Mul(r_attr[i])
    }
  
+
 
 
   // Le user prend D, Dj et Djprime en tant que private key
@@ -320,26 +453,37 @@ func main() {
    // ******************************************************
    // à coupler à de l AES qui se sert de m (utiliser un sha3 shake pour generer la cle AES)
 
-   Cprime := RandFP(rnd)
-   fmt.Println("Key pour l encodage: ",hex.EncodeToString(Hash_AES_Key(Cprime)))
+   CipherData := new(Cipher)
+
+   CipherData.Cprime = RandFP(rnd)
+   fmt.Println("Key pour l encodage: ",hex.EncodeToString(Hash_AES_Key(CipherData.Cprime)))
 
    //on encode
-   Cprime.Mul(ealpha.Pow(s))
+   CipherData.Cprime.Mul(ealpha.Pow(s))
 
-   C := h.Mul(s)  // Gen 1
+   CipherData.C = h.Mul(s)  // Gen 1
 
    // voir plus haut les fonctions q sont constants et toujours égales à s (clé de la policy)
    
-   Cj := make([]*curve.ECP8,leaves_nb)
-   Cjprime := make([]*curve.ECP,leaves_nb)
+   CipherData.Cj = make([]*curve.ECP8,leaves_nb)
+   CipherData.Cjprime = make([]*curve.ECP,leaves_nb)
 
    // ici on parcourt les feuilles et non les listes d attributs.  Exemple un attribut peut revenir deux fois.
    for i = 0 ; i < leaves_nb ; i++ {
-   	   q0 := getq_zero(&policy,s,leaves_nodes[i],0)
-   	   fmt.Println(attr_proof[policy[leaves_nodes[i]].attr])
-   	   fmt.Println(q0.ToString())
-       Cjprime[i] = curve.ECP_mapit([]byte(attr_proof[policy[leaves_nodes[i]].attr])).Mul(q0)
-       Cj[i] = GenG2.Mul(s)
+   	   y := leaves_nodes[i]
+   	   q0 := getq_zero(&policy,s,y,0)
+
+
+   	  
+//   	   fmt.Println(attr_proof[policy[leaves_nodes[i]].attr])
+  // 	   fmt.Println(attr_proof[policy[y].attr])
+   	   //fmt.Println(q0.ToString())
+       CipherData.Cjprime[i] = curve.ECP_mapit([]byte(attr_proof[policy[y].attr])).Mul(q0)
+       CipherData.Cj[i] = GenG2.Mul(q0)
+
+       /* tmp77 := curve.Modmul(q0,r,GroupOrder)
+        tmp7 := GenGT.Pow(tmp77)
+        fmt.Println(y,tmp7.ToString())*/
    }
    
 
@@ -349,34 +493,39 @@ func main() {
    
    // à coupler à de l AES qui se sert de m (utiliser un sha3 shake pour generer la cle AES)
 
-   eCD1 := curve.Fexp(curve.Ate(Cj[0],Dj[0]))
-   eCD1_prime := curve.Fexp(curve.Ate(Djprime[0],Cjprime[0]))
+
+   eCD1 := curve.Fexp(curve.Ate(CipherData.Cj[0],SK.Dj[0]))
+   eCD1_prime := curve.Fexp(curve.Ate(SK.Djprime[0],CipherData.Cjprime[0]))
    eCD1_prime.Inverse()
    eCD1.Mul(eCD1_prime)
 
-
-   eCD2 := curve.Fexp(curve.Ate(Cj[1],Dj[1]))
-   eCD2_prime := curve.Fexp(curve.Ate(Djprime[1],Cjprime[1]))
+/*
+   eCD2 := curve.Fexp(curve.Ate(CipherData.Cj[1],SK.Dj[1]))
+   eCD2_prime := curve.Fexp(curve.Ate(SK.Djprime[1],CipherData.Cjprime[1]))
    eCD2_prime.Inverse()
    eCD2.Mul(eCD2_prime)
+*/
 
+	Decrypt(SK,CipherData,&policy,&a,0)
+os.Exit(0)
 
    // on n utilise que le premier indice.
-   A := curve.NewFP48copy(eCD1)
+
+  A := curve.NewFP48copy(eCD1)
    A.Inverse()
 
-   T1 := curve.Fexp(curve.Ate(D,C))
+   T1 := curve.Fexp(curve.Ate(SK.D,CipherData.C))
    T1.Mul(A)
  //  fmt.Println("\naa =========",T1.ToString())
 
    T1.Inverse()
 
-   Cprime.Mul(T1)
+   CipherData.Cprime.Mul(T1)
 
 
-   fmt.Println("Key pour le decodage: ",hex.EncodeToString(Hash_AES_Key(Cprime)))
+   fmt.Println("Key pour le decodage: ",hex.EncodeToString(Hash_AES_Key(CipherData.Cprime)))
 
-
+os.Exit(2)
  
 
 }
