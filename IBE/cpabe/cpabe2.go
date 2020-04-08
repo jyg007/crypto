@@ -234,7 +234,7 @@ func Decrypt( SK *SecretKey , CipherData *Cipher, n *[]*node , attr_user *[]stri
 
 
 
-	FFx := make([]*curve.FP48,0) //A CORRRIGER AVEC LA BONNE LONGUER
+	FFx := make([]*curve.FP48,0) 
 	FFx2 := make([]*curve.BIG,0)
 
 	for i:=0 ; i< len((*(*n)[x]).leaves);i++ { 
@@ -323,7 +323,7 @@ func main() {
 	// a represente les attributes de celui qui veut accesder à la preuve
 	a :=make([]string,attr_nb)
 
-    a[0]= "employeibm"
+    a[0]= "employeiba"
     //a[0] = ""
     a[1] = "employeairbus"
 
@@ -385,8 +385,7 @@ func main() {
  	  tmp6 := curve.ECP_mapit([]byte(a[i])).Mul(r_attr[i])
    	  tmp7 := GenG1.Mul(r)
       tmp7.Add(tmp6)
-      SK.Dj[i] = curve.NewECP()
-      SK.Dj[i].Copy(tmp7)
+      SK.Dj[i] = curve.NewECPCopy(tmp7)
       SK.Djprime[i] = GenG2.Mul(r_attr[i])
    }
  
