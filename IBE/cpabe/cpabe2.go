@@ -42,13 +42,19 @@ var FieldBytes = int(curve.MODBYTES)
 // GroupOrder is the order of the groups
 var GroupOrder = curve.NewBIGints(curve.CURVE_Order)
 
+//********************************************************************************************************************************************************************
+//********************************************************************************************************************************************************************
+func Modsub(a, b, m *curve.BIG) *curve.BIG {
+        return curve.Modadd(a, curve.Modneg(b, m), m)
+}
+
+
 func EcpToBytes(E *curve.ECP) []byte {
 	length := 2*FieldBytes + 1
 	res := make([]byte, length)
 	E.ToBytes(res, false)
 	return res
 }
-
 
 // GetRand returns a new *amcl.RAND with a fresh seed
 func GetRand() (*amcl.RAND) {
@@ -79,7 +85,6 @@ func RandFP(rng *amcl.RAND) *curve.FP48 {
 	// curve order q
 	q := curve.NewBIGints(curve.CURVE_Order)
 
-
 	fp := make([]*curve.FP,48)
 	fp2 := make([]*curve.FP2,24)
 	fp4 := make([]*curve.FP4,12)
@@ -108,6 +113,8 @@ func RandFP(rng *amcl.RAND) *curve.FP48 {
 
 }
 
+//********************************************************************************************************************************************************************
+//********************************************************************************************************************************************************************
 
 // nh longueur du hash à generer qui depend ici de la longueur du message. 
 // hash de Gt vers {0,1}^m
@@ -124,8 +131,6 @@ func Hash_AES_Key(n *curve.FP48 ) ([]byte) {
 	hash.Read(h)
 	return h
 }
-
-
 	
 type node struct {
     parent int  // index of the parent node
@@ -136,6 +141,13 @@ type node struct {
     y []*curve.BIG
 }
 
+type Policy struct {
+	s curve.BIG
+	rnd *amcl.RAND
+	tree_nodes []*node
+	leaves_nodes []*node
+	nodes_nb int
+}
 
 func (n *node) Init(rnd *amcl.RAND ,parent int, leaves []int , threshold int, attr int)  {
 	n.parent = parent
@@ -156,16 +168,8 @@ func (n *node) Init(rnd *amcl.RAND ,parent int, leaves []int , threshold int, at
 }
 
 
-func Modsub(a, b, m *curve.BIG) *curve.BIG {
-        return curve.Modadd(a, curve.Modneg(b, m), m)
-}
-
-
-
- 
-
-
-
+//********************************************************************************************************************************************************************
+//******************************************************************************************************************************************************************** 
 // utilisé pour le decryption - ne connait pas la valeur de y
 func Lagrange_Interpolate2(n []*curve.BIG, i int) (*curve.BIG) {
 	
@@ -188,8 +192,10 @@ func Lagrange_Interpolate2(n []*curve.BIG, i int) (*curve.BIG) {
 	return prod
 }
 
-func (n *node) Lagrange_Interpolate(x *curve.BIG) (*curve.BIG) {
 
+//********************************************************************************************************************************************************************
+//********************************************************************************************************************************************************************
+func (n *node) Lagrange_Interpolate(x *curve.BIG) (*curve.BIG) {
 	est := curve.NewBIGint(0)
 	for i := 0; i < len(n.x); i++ {
 		prod := curve.NewBIGcopy(n.y[i])
@@ -210,11 +216,8 @@ func (n *node) Lagrange_Interpolate(x *curve.BIG) (*curve.BIG) {
 }
 
 
-
-
 //********************************************************************************************************************************************************************
 //********************************************************************************************************************************************************************
-
 func Decrypt( SK *SecretKey , CipherData *Cipher, n *[]*node , attr_user *[]string , x int)  (*curve.FP48) {
 	offset_leaves := 1  //(indique le noeud ou commence la premiere leave)
 	fmt.Println("Calcul de F_",x);
@@ -233,10 +236,10 @@ func Decrypt( SK *SecretKey , CipherData *Cipher, n *[]*node , attr_user *[]stri
 	}
 
 
+	FFx := make([]*curve.FP48,0)   //calcul de F(z)  où z est un nœud des feuilles que nous parcourons
+	FFx2 := make([]*curve.BIG,0)   // index(z) 
 
-	FFx := make([]*curve.FP48,0) 
-	FFx2 := make([]*curve.BIG,0)
-
+    // parcourons les leaves de ce noeud pour le calculer
 	for i:=0 ; i< len((*(*n)[x]).leaves);i++ { 
 		leave_node := (*n)[ (*(*n)[x]).leaves[i] ]
 		if ((*attr_user)[leave_node.attr] == "" ) {
@@ -323,7 +326,7 @@ func main() {
 	// a represente les attributes de celui qui veut accesder à la preuve
 	a :=make([]string,attr_nb)
 
-    a[0]= "employeiba"
+    a[0]= "employeibm"
     //a[0] = ""
     a[1] = "employeairbus"
 
@@ -385,7 +388,8 @@ func main() {
  	  tmp6 := curve.ECP_mapit([]byte(a[i])).Mul(r_attr[i])
    	  tmp7 := GenG1.Mul(r)
       tmp7.Add(tmp6)
-      SK.Dj[i] = curve.NewECPCopy(tmp7)
+      SK.Dj[i] = curve.NewECP()
+      SK.Dj[i].Copy(tmp7)
       SK.Djprime[i] = GenG2.Mul(r_attr[i])
    }
  
@@ -433,11 +437,11 @@ func main() {
 
 
 
-	eCD1 := Decrypt(SK,CipherData,&policy,&a,0)
+	eCD := Decrypt(SK,CipherData,&policy,&attr_proof,0)
 
    // on n utilise que le premier indice.
 
-  A := curve.NewFP48copy(eCD1)
+  A := curve.NewFP48copy(eCD)
    A.Inverse()
 
    T1 := curve.Fexp(curve.Ate(SK.D,CipherData.C))
