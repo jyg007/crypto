@@ -31,6 +31,7 @@ type SecretKey struct {
 const OR=1
 const AND=2
 
+
 var GenG1 = curve.ECP_generator()
 var GenG2 = curve.ECP8_generator()
 
@@ -41,20 +42,6 @@ var GenGT = curve.Fexp(curve.Ate(GenG2, GenG1))
 var FieldBytes = int(curve.MODBYTES)
 // GroupOrder is the order of the groups
 var GroupOrder = curve.NewBIGints(curve.CURVE_Order)
-
-//********************************************************************************************************************************************************************
-//********************************************************************************************************************************************************************
-func Modsub(a, b, m *curve.BIG) *curve.BIG {
-        return curve.Modadd(a, curve.Modneg(b, m), m)
-}
-
-
-func EcpToBytes(E *curve.ECP) []byte {
-	length := 2*FieldBytes + 1
-	res := make([]byte, length)
-	E.ToBytes(res, false)
-	return res
-}
 
 // GetRand returns a new *amcl.RAND with a fresh seed
 func GetRand() (*amcl.RAND) {
@@ -78,6 +65,191 @@ func RandModOrder(rng *amcl.RAND) *curve.BIG {
 	// Take random element in Zq
 	return curve.Randomnum(q, rng)
 }
+
+//********************************************************************************************************************************************************************
+//********************************************************************************************************************************************************************
+func Modsub(a, b, m *curve.BIG) *curve.BIG {
+        return curve.Modadd(a, curve.Modneg(b, m), m)
+}
+
+
+func EcpToBytes(E *curve.ECP) []byte {
+	length := 2*FieldBytes + 1
+	res := make([]byte, length)
+	E.ToBytes(res, false)
+	return res
+}
+
+
+
+type NODE struct {
+    parent int  // index of the parent node
+    leaves []int
+    threshold  int     	//threshold 1 pour OR et nombre de leafs si AND
+    attr int     // index de l attribut teste ici
+    x []*curve.BIG   // represente les points du polynome au noeud en fonction du threshold
+    y []*curve.BIG
+}
+
+
+
+
+func (n *NODE) SetChildren(children []int , threshold int) {
+	rnd := GetRand()
+	 n.leaves = children
+	 n.threshold = threshold
+	for i := len(n.x) ; i<threshold;i++ {
+	   	n.x = append(n.x,curve.NewBIGint(10+i))
+	   	n.y = append(n.y,RandModOrder(rnd))
+	}
+}
+
+//********************************************************************************************************************************************************************
+//********************************************************************************************************************************************************************
+func (n *NODE) Lagrange_Interpolate(x *curve.BIG) (*curve.BIG) {
+	est := curve.NewBIGint(0)
+	for i := 0; i < len(n.x); i++ {
+		prod := curve.NewBIGcopy(n.y[i])
+
+		for j := 0; j < len(n.x); j++ {
+			if i != j {
+		
+				tmp1 := Modsub(x,n.x[j],GroupOrder)  
+				tmp2 := Modsub(n.x[i],n.x[j],GroupOrder)
+				tmp2.Invmodp(GroupOrder)
+				prod = curve.Modmul(prod,tmp1,GroupOrder)
+				prod = curve.Modmul(prod,tmp2,GroupOrder)
+			}
+		}
+		est = curve.Modadd(prod,est,GroupOrder)
+	}
+	return est
+}
+
+//********************************************************************************************************************************************************************
+//******************************************************************************************************************************************************************** 
+// utilisé pour le decryption - ne connait pas la valeur de y
+func Lagrange_Interpolate2(n []*curve.BIG, i int) (*curve.BIG) {
+	
+	x := curve.NewBIGint(0)
+
+	prod := curve.NewBIGint(1)
+	tmp1 := curve.NewBIG()
+	tmp2 := curve.NewBIG()
+	
+	for j := 0; j < len(n); j++ {
+		if i != j {
+			tmp1 = Modsub(x,n[j],GroupOrder)  
+			tmp2 = Modsub(n[i],n[j],GroupOrder)
+			tmp2.Invmodp(GroupOrder)
+			prod = curve.Modmul(prod,tmp1,GroupOrder)
+			prod = curve.Modmul(prod,tmp2,GroupOrder)
+		}
+	}
+		
+	return prod
+}
+
+
+
+type Policy struct {
+	s *curve.BIG
+	rnd *amcl.RAND
+	tree_nodes [] *NODE
+	leaves_nodes []int
+	nodes_nb int
+	attr_proof []string
+}
+
+func (p *Policy) Init() {
+	   	p.rnd = GetRand()
+	   	p.s = RandModOrder(p.rnd)   // je pense propre à la policy	
+
+	   	//construction du noeud racine
+	   	p.tree_nodes = make([]*NODE,1)
+	   	p.tree_nodes[0] = new (NODE)
+	   	p.tree_nodes[0].x = make([]*curve.BIG,1)
+	    p.tree_nodes[0].y = make([]*curve.BIG,1)
+	    p.tree_nodes[0].x[0] = curve.NewBIGint(0)
+	    p.tree_nodes[0].y[0] = p.s
+}
+
+func (p *Policy) AddLeave(parent int, attr int) {
+	   	n := new (NODE)
+	   	n.parent = parent
+	   	n.attr =attr
+   	
+	   	n.x = make([]*curve.BIG,1)
+	    n.y = make([]*curve.BIG,1)
+	 //	n.threshold = 1
+	   	p.tree_nodes = append(p.tree_nodes,n)
+	   	p.leaves_nodes = append(p.leaves_nodes,len(p.tree_nodes)-1)
+}
+
+func (p *Policy) SetAttributes( attributes_array []string) {
+	p.attr_proof = attributes_array
+}
+
+// l arbre, qR(0) , k le noeud et x la valeur demander par exemple qk(x)
+func (p *Policy) getq0(k int, x int)  ( *curve.BIG) {
+//	fmt.Println("--q",k,"(",x,")")
+	if (x ==0) {
+		if ( k ==0 ) {
+			// en fait jamais appelé ?
+			fmt.Println("k =>" ,p.tree_nodes[k].threshold)
+			return p.s	
+		}
+		p.tree_nodes[k].x[0] = curve.NewBIGint(0)
+		p.tree_nodes[k].y[0] = p.getq0(p.tree_nodes[k].parent,k)
+		return p.tree_nodes[k].y[0]
+	}
+//	fmt.Println("Lagrange ",k,"",x)
+	X := curve.NewBIGint(x)
+	return p.tree_nodes[k].Lagrange_Interpolate(X)
+}
+
+//********************************************************************************************************************************************************************
+//********************************************************************************************************************************************************************
+func (p *Policy )Decrypt2( SK *SecretKey , CipherData *Cipher, x int)  (*curve.FP48) {
+	offset_leaves := 1  //(indique le noeud ou commence la premiere leave)
+	fmt.Println("Calcul de F_",x);
+	if len(p.tree_nodes[x].leaves)==0 {
+
+		//calcul Lagrangien
+		i := p.tree_nodes[x].attr   // attribut du noeud
+
+	//	fmt.Println("***",x-offset_leaves,i)   //  decalage entre tableau noeuds totaux et tableau des leaves
+		eCD := curve.Fexp(curve.Ate(CipherData.Cj[x-offset_leaves],SK.Dj[i]))
+   		eCD_prime := curve.Fexp(curve.Ate(SK.Djprime[i],CipherData.Cjprime[x-offset_leaves]))
+   		eCD_prime.Inverse()
+   		eCD.Mul(eCD_prime)
+
+		return eCD
+	}
+
+
+	FFx := make([]*curve.FP48,0)   //calcul de F(z)  où z est un nœud des feuilles que nous parcourons
+	FFx2 := make([]*curve.BIG,0)   // index(z) 
+
+    // parcourons les leaves de ce noeud pour le calculer
+	for i:=0 ; i< len(p.tree_nodes[x].leaves);i++ { 
+		leave_node := p.tree_nodes[ p.tree_nodes[x].leaves[i] ]
+		if (p.attr_proof[leave_node.attr] == "" ) {
+			fmt.Println("Param non defini pour l utilisateur:", p.attr_proof[leave_node.attr])
+		} else {
+				FFx = append(FFx,p.Decrypt2(SK, CipherData, p.tree_nodes[x].leaves[i]))
+				FFx2 = append(FFx2,curve.NewBIGint(p.tree_nodes[x].leaves[i]))
+		}
+	}
+
+   	Fx := curve.NewFP48int(1)
+   	for i:=0;i<len(FFx);i++ { 
+	    Fx.Mul(FFx[i].Pow(Lagrange_Interpolate2(FFx2,i)))
+   	}
+	return Fx
+}
+
+
 
 
 func RandFP(rng *amcl.RAND) *curve.FP48 {
@@ -132,148 +304,114 @@ func Hash_AES_Key(n *curve.FP48 ) ([]byte) {
 	return h
 }
 	
-type node struct {
-    parent int  // index of the parent node
-    leaves []int
-    threshold  int     	//threshold 1 pour OR et nombre de leafs si AND
-    attr int     // index de l attribut teste ici
-    x []*curve.BIG   // represente les points du polynome au noeud en fonction du threshold
-    y []*curve.BIG
+
+type MASTERKEY struct {
+	alpha *curve.BIG
+	beta *curve.BIG
+    h *curve.ECP
+    ealpha *curve.FP48 
 }
 
-type Policy struct {
-	s curve.BIG
-	rnd *amcl.RAND
-	tree_nodes []*node
-	leaves_nodes []*node
-	nodes_nb int
-}
-
-func (n *node) Init(rnd *amcl.RAND ,parent int, leaves []int , threshold int, attr int)  {
-	n.parent = parent
-	n.leaves = leaves
-	n.threshold = threshold
-	n.attr = attr
-
-	n.x = make([]*curve.BIG, threshold )
-	n.y = make([]*curve.BIG, threshold )
-	//valeur en zero defini par rapport aux parent
-
-	if (threshold > 1 ) {
-		for  j:= 1;j< threshold;j++ {
-			n.x[j] = curve.NewBIGint(10+j)
-			n.y[j] = RandModOrder(rnd)
-		}
-	}
+func ( m*MASTERKEY) Init() {
+	rnd := GetRand()
+    m.alpha = RandModOrder(rnd)
+	m.beta = RandModOrder(rnd)
+    m.h = GenG1.Mul(m.beta)
+    m.ealpha = GenGT.Pow(m.alpha)
 }
 
 
-//********************************************************************************************************************************************************************
-//******************************************************************************************************************************************************************** 
-// utilisé pour le decryption - ne connait pas la valeur de y
-func Lagrange_Interpolate2(n []*curve.BIG, i int) (*curve.BIG) {
-	
-	x := curve.NewBIGint(0)
+func ( p *Policy) GenSK(MASTER *MASTERKEY, a []string) (*SecretKey) {
+	var i int
+	SK := new(SecretKey)
+  // s := RandModOrder(rnd)   // je pense propre à la policy
+   
+   SK.Dj = make([]*curve.ECP,len(p.attr_proof))
+   SK.Djprime = make([]*curve.ECP8,len(p.attr_proof))
+ 
+   // (r, r1,r2) defini par utilisateur
+   r := RandModOrder(p.rnd)
 
-	prod := curve.NewBIGint(1)
-	tmp1 := curve.NewBIG()
-	tmp2 := curve.NewBIG()
-	
-	for j := 0; j < len(n); j++ {
-		if i != j {
-			tmp1 = Modsub(x,n[j],GroupOrder)  
-			tmp2 = Modsub(n[i],n[j],GroupOrder)
-			tmp2.Invmodp(GroupOrder)
-			prod = curve.Modmul(prod,tmp1,GroupOrder)
-			prod = curve.Modmul(prod,tmp2,GroupOrder)
-		}
-	}
-		
-	return prod
+   r_attr := make([]*curve.BIG,len(p.attr_proof))
+   for i = 0 ; i < len(p.attr_proof) ; i++ {
+   	  r_attr[i] = RandModOrder(p.rnd)
+   }
+
+   tmp1 := curve.Modadd(MASTER.alpha,r, GroupOrder )
+   betainv := curve.NewBIGcopy(MASTER.beta)
+   betainv.Invmodp(GroupOrder)
+   puis := curve.Modmul(tmp1,betainv,GroupOrder)
+   SK.D = GenG2.Mul(puis)
+
+   // q1(0) = s et q2(0) = s ici, sinon voir doc et poly de Lagrange pour interpolation
+ 
+   // creation de D pour tous les attributs
+
+    for i = 0 ; i < len(p.attr_proof) ; i++ {
+ 	  tmp6 := curve.ECP_mapit([]byte(a[i])).Mul(r_attr[i])
+   	  tmp7 := GenG1.Mul(r)
+      tmp7.Add(tmp6)
+      SK.Dj[i] = curve.NewECP()
+      SK.Dj[i].Copy(tmp7)
+      SK.Djprime[i] = GenG2.Mul(r_attr[i])
+   }
+   return SK
+
 }
 
+func ( p *Policy) Encrypt(MASTER *MASTERKEY, m *curve.FP48) (*Cipher) {
+   
+   CipherData := new(Cipher)
 
-//********************************************************************************************************************************************************************
-//********************************************************************************************************************************************************************
-func (n *node) Lagrange_Interpolate(x *curve.BIG) (*curve.BIG) {
-	est := curve.NewBIGint(0)
-	for i := 0; i < len(n.x); i++ {
-		prod := curve.NewBIGcopy(n.y[i])
+   CipherData.Cprime = m
 
-		for j := 0; j < len(n.x); j++ {
-			if i != j {
-				
-				tmp1 := Modsub(x,n.x[j],GroupOrder)  
-				tmp2 := Modsub(n.x[i],n.x[j],GroupOrder)
-				tmp2.Invmodp(GroupOrder)
-				prod = curve.Modmul(prod,tmp1,GroupOrder)
-				prod = curve.Modmul(prod,tmp2,GroupOrder)
-			}
-		}
-		est = curve.Modadd(prod,est,GroupOrder)
-	}
-	return est
-}
+   //on encode
+   CipherData.Cprime.Mul(MASTER.ealpha.Pow(p.s))
+
+   CipherData.C = MASTER.h.Mul(p.s)  // Gen 1
+
+   // voir plus haut les fonctions q sont constants et toujours égales à s (clé de la policy)
+   
+  // CipherData.Cj = make([]*curve.ECP8,leaves_nb)
+   //CipherData.Cjprime = make([]*curve.ECP,leaves_nb)
+   CipherData.Cj = make([]*curve.ECP8,len(p.leaves_nodes))
+   CipherData.Cjprime = make([]*curve.ECP,len(p.leaves_nodes))
 
 
-//********************************************************************************************************************************************************************
-//********************************************************************************************************************************************************************
-func Decrypt( SK *SecretKey , CipherData *Cipher, n *[]*node , attr_user *[]string , x int)  (*curve.FP48) {
-	offset_leaves := 1  //(indique le noeud ou commence la premiere leave)
-	fmt.Println("Calcul de F_",x);
-	if len((*(*n)[x]).leaves)==0 {
+   // ici on parcourt les feuilles et non les listes d attributs.  Exemple un attribut peut revenir deux fois.
+   for i := 0 ; i < len(p.leaves_nodes) ; i++ {
+   	  // y := leaves_nodes[i]
+   	  // q0 := getq_zero(&policy,s,y,0)
+   	   y := p.leaves_nodes[i]
+   	   q0:=p.getq0(y,0)
+       CipherData.Cjprime[i] = curve.ECP_mapit([]byte( p.attr_proof[ p.tree_nodes[y].attr] )).Mul(q0)
+       CipherData.Cj[i] = GenG2.Mul(q0)
 
-		//calcul Lagrangien
-		i := (*n)[x].attr   // attribut du noeud
+   }
+   return CipherData
 
-	//	fmt.Println("***",x-offset_leaves,i)   //  decalage entre tableau noeuds totaux et tableau des leaves
-		eCD := curve.Fexp(curve.Ate(CipherData.Cj[x-offset_leaves],SK.Dj[i]))
-   		eCD_prime := curve.Fexp(curve.Ate(SK.Djprime[i],CipherData.Cjprime[x-offset_leaves]))
-   		eCD_prime.Inverse()
-   		eCD.Mul(eCD_prime)
-
-		return eCD
-	}
+} 
 
 
-	FFx := make([]*curve.FP48,0)   //calcul de F(z)  où z est un nœud des feuilles que nous parcourons
-	FFx2 := make([]*curve.BIG,0)   // index(z) 
+func (p *Policy) Decrypt(SK *SecretKey, CipherData *Cipher) (*curve.FP48) {
 
-    // parcourons les leaves de ce noeud pour le calculer
-	for i:=0 ; i< len((*(*n)[x]).leaves);i++ { 
-		leave_node := (*n)[ (*(*n)[x]).leaves[i] ]
-		if ((*attr_user)[leave_node.attr] == "" ) {
-			fmt.Println("Param non defini pour l utilisateur:", (*attr_user)[leave_node.attr])
-		} else {
-				FFx = append(FFx,Decrypt(SK, CipherData, n, attr_user, (*(*n)[x]).leaves[i]))
-				FFx2 = append(FFx2,curve.NewBIGint((*(*n)[x]).leaves[i]))
-		}
-	}
+   eCD := p.Decrypt2(SK,CipherData,0)
 
-   	Fx := curve.NewFP48int(1)
-   	for i:=0;i<len(FFx);i++ { 
-	    Fx.Mul(FFx[i].Pow(Lagrange_Interpolate2(FFx2,i)))
-   	}
-	return Fx
-}
+   // on n utilise que le premier indice.
 
+   A := curve.NewFP48copy(eCD)
+   A.Inverse()
 
-// l arbre, qR(0) , k le noeud et x la valeur demander par exemple qk(x)
-func  getq_zero(n *[]*node, s  *curve.BIG ,   k int, x int)  ( *curve.BIG) {
-//	fmt.Println("--q",k,"(",x,")")
-	if (x ==0) {
-		if ( k ==0 ) {
-			// en fait jamais appelé ?
-			fmt.Println("k =>" ,(*(*n)[k]).threshold)
-			return s	
-		}
-		(*(*n)[k]).x[0] = curve.NewBIGint(0)
-		(*(*n)[k]).y[0] = getq_zero(n, s, (*(*n)[k]).parent,k)
-		return (*(*n)[k]).y[0]
-	}
-//	fmt.Println("Lagrange ",k,"",x)
-	X := curve.NewBIGint(x)
-	return (*(*n)[k]).Lagrange_Interpolate(X)
+   T1 := curve.Fexp(curve.Ate(SK.D,CipherData.C))
+   T1.Mul(A)
+ 
+
+   T1.Inverse()
+
+   m := curve.NewFP48copy(CipherData.Cprime)
+
+   m.Mul(T1)
+   return m
 }
 
 
@@ -284,24 +422,15 @@ func  getq_zero(n *[]*node, s  *curve.BIG ,   k int, x int)  ( *curve.BIG) {
 //********************************************************************************************************************************************************************
 
 func main() {
-   	rnd := GetRand()
-    
-	// construction de la policy
-	policy := make([]*node,3)
-	for i:=0 ; i< 3 ; i++ {
-		policy[i] = new(node)
-	}
-	//  parent   | leaves | threeshold  | attributes #
-	// Threashold how leaves should be true
-	policy[0].Init(rnd, -1, []int{1 , 2} , AND,-1 )  //noeud root
-    policy[1].Init(rnd,  0, []int{} , OR , 0 )      //noeud 1
-	policy[2].Init(rnd,  0, []int{} , OR , 1  )     //noeud 2
-		
-	// initialization 	
-	s := RandModOrder(rnd)   // je pense propre à la policy	
-	policy[0].x[0] = curve.NewBIGint(0)
-	policy[0].y[0] = s
-	   
+
+	POLICY := new(Policy)
+	POLICY.Init()
+	POLICY.AddLeave(0,0)   //noeud parent et attribut
+	POLICY.AddLeave(0,1)
+	POLICY.tree_nodes[0].SetChildren( []int{1 , 2} , AND )    // tableau des children et le threeshold
+
+	POLICY.SetAttributes([]string{"employeibm","employeairbus"})
+  
    
     // Modelisation polynomiqle (voir lecture 14) de condition a ou b (simple...)
     // on part ici dans un test a1 OR a2 
@@ -310,151 +439,54 @@ func main() {
     //   donc q1(x)=q2(x)=qR(x)=s  
 
   
-    // Definition de la policy  => l arbre a deux attributs testé et on cree le tableau att qui nous donne l index de l attribut tester pour chaque feuille de l arbre
-    // Donc dans un cas attr1 ou attr2 on a
- 	leaves_nb:=2
-
-    leaves_nodes := make([]int,leaves_nb)
-    
-    leaves_nodes[0] = 1
-    leaves_nodes[1] = 2
-
-    //nombre d attribut
-	attr_nb :=2
+  
 
 	//tableau à deux attribut que l on definit avec une valeur plutot qu un bit
 	// a represente les attributes de celui qui veut accesder à la preuve
-	a :=make([]string,attr_nb)
+	a :=make([]string,len(POLICY.attr_proof))
 
     a[0]= "employeibm"
     //a[0] = ""
     a[1] = "employeairbus"
 
 
-
-
-    // pareil mais utilisé pour la création de la preuve
-	attr_proof :=make([]string,attr_nb)
-
-    attr_proof[0]= "employeibm"
-    attr_proof[1] = "employeairbus"
-
-
     //MASTER
 	//initialization de la master key pour la central authority
 
-    alpha := RandModOrder(rnd)
-	beta := RandModOrder(rnd)
-    h := GenG1.Mul(beta)
-    ealpha := GenGT.Pow(alpha)
+	MASTER := new (MASTERKEY)
+	MASTER.Init()
    
-
     // pk => G1, h ealpha 
-
+// generer la pubkey pour encrypt
 
 
    // ******************************************************
    //KEYGEN
    // ******************************************************
 
+   SK := POLICY.GenSK(MASTER,a)
+   // Le user prend D, Dj et Djprime en tant que private key
 
-   SK := new(SecretKey)
-   
-   var i int
-  // s := RandModOrder(rnd)   // je pense propre à la policy
-   
-   SK.Dj = make([]*curve.ECP,attr_nb)
-   SK.Djprime = make([]*curve.ECP8,attr_nb)
- 
-   // (r, r1,r2) defini par utilisateur
-   r := RandModOrder(rnd)
-
-   r_attr := make([]*curve.BIG,attr_nb)
-   for i = 0 ; i < attr_nb ; i++ {
-   	  r_attr[i] = RandModOrder(rnd)
-   }
-
-   tmp1 := curve.Modadd(alpha,r, GroupOrder )
-   betainv := curve.NewBIGcopy(beta)
-   betainv.Invmodp(GroupOrder)
-   puis := curve.Modmul(tmp1,betainv,GroupOrder)
-   SK.D = GenG2.Mul(puis)
-
-   // q1(0) = s et q2(0) = s ici, sinon voir doc et poly de Lagrange pour interpolation
- 
-   // creation de D pour tous les attributs
-
-    for i = 0 ; i < attr_nb ; i++ {
- 	  tmp6 := curve.ECP_mapit([]byte(a[i])).Mul(r_attr[i])
-   	  tmp7 := GenG1.Mul(r)
-      tmp7.Add(tmp6)
-      SK.Dj[i] = curve.NewECP()
-      SK.Dj[i].Copy(tmp7)
-      SK.Djprime[i] = GenG2.Mul(r_attr[i])
-   }
- 
-
-
-
-  // Le user prend D, Dj et Djprime en tant que private key
 
    // ******************************************************
    // ENCRYPT   with pk (ealpha, h)
    // ******************************************************
    // à coupler à de l AES qui se sert de m (utiliser un sha3 shake pour generer la cle AES)
 
-   CipherData := new(Cipher)
+   m := RandFP(POLICY.rnd)
+   fmt.Println("Key pour l encodage: ",hex.EncodeToString(Hash_AES_Key(m)))
 
-   CipherData.Cprime = RandFP(rnd)
-   fmt.Println("Key pour l encodage: ",hex.EncodeToString(Hash_AES_Key(CipherData.Cprime)))
+   // à changer ici , il ne faut prendre que lapartie pubkey
+   CipherData := POLICY.Encrypt(MASTER,m)
 
-   //on encode
-   CipherData.Cprime.Mul(ealpha.Pow(s))
-
-   CipherData.C = h.Mul(s)  // Gen 1
-
-   // voir plus haut les fonctions q sont constants et toujours égales à s (clé de la policy)
-   
-   CipherData.Cj = make([]*curve.ECP8,leaves_nb)
-   CipherData.Cjprime = make([]*curve.ECP,leaves_nb)
-
-   // ici on parcourt les feuilles et non les listes d attributs.  Exemple un attribut peut revenir deux fois.
-   for i = 0 ; i < leaves_nb ; i++ {
-   	   y := leaves_nodes[i]
-   	   q0 := getq_zero(&policy,s,y,0)
-
-       CipherData.Cjprime[i] = curve.ECP_mapit([]byte(attr_proof[policy[y].attr])).Mul(q0)
-       CipherData.Cj[i] = GenG2.Mul(q0)
-
-   }
-   
 
    // ******************************************************
    // DECRYPT
    // ******************************************************
    
    // à coupler à de l AES qui se sert de m (utiliser un sha3 shake pour generer la cle AES)
+   m1 := POLICY.Decrypt(SK,CipherData)  
 
-
-
-	eCD := Decrypt(SK,CipherData,&policy,&attr_proof,0)
-
-   // on n utilise que le premier indice.
-
-  A := curve.NewFP48copy(eCD)
-   A.Inverse()
-
-   T1 := curve.Fexp(curve.Ate(SK.D,CipherData.C))
-   T1.Mul(A)
+   fmt.Println("Key pour le decodage: ",hex.EncodeToString(Hash_AES_Key(m1)))
  
-
-   T1.Inverse()
-
-   CipherData.Cprime.Mul(T1)
-
-
-   fmt.Println("Key pour le decodage: ",hex.EncodeToString(Hash_AES_Key(CipherData.Cprime)))
-
- 
-
 }
