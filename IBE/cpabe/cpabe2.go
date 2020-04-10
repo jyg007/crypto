@@ -25,6 +25,8 @@ type SecretKey struct {
 	D *curve.ECP8
 	Dj []*curve.ECP
 	Djprime []*curve.ECP8
+	user_attr []string
+
 }
 
 type PublicKey struct {
@@ -223,6 +225,10 @@ func (p *Policy )Decrypt2( SK *SecretKey , CipherData *Cipher, x int)  (*curve.F
 		//calcul Lagrangien
 		i := p.tree_nodes[x].attr   // attribut du noeud
 
+		if (SK.user_attr[i]=="") {
+			return curve.NewFP48int(0)
+		}
+
 	//	fmt.Println("***",x-offset_leaves,i)   //  decalage entre tableau noeuds totaux et tableau des leaves
 		eCD := curve.Fexp(curve.Ate(CipherData.Cj[x-offset_leaves],SK.Dj[i]))
    		eCD_prime := curve.Fexp(curve.Ate(SK.Djprime[i],CipherData.Cjprime[x-offset_leaves]))
@@ -242,8 +248,12 @@ func (p *Policy )Decrypt2( SK *SecretKey , CipherData *Cipher, x int)  (*curve.F
 		if (p.attr_proof[leave_node.attr] == "" ) {
 			fmt.Println("Param non defini pour l utilisateur:", p.attr_proof[leave_node.attr])
 		} else {
-				FFx = append(FFx,p.Decrypt2(SK, CipherData, p.tree_nodes[x].leaves[i]))
-				FFx2 = append(FFx2,curve.NewBIGint(p.tree_nodes[x].leaves[i]))
+			    tmp := p.Decrypt2(SK, CipherData, p.tree_nodes[x].leaves[i])
+			    if (!tmp.Equals(curve.NewFP48int(0))) {
+			    	   fmt.Println("ok")
+			    		FFx = append(FFx,tmp)
+						FFx2 = append(FFx2,curve.NewBIGint(p.tree_nodes[x].leaves[i]))
+			    }
 		}
 	}
 
@@ -329,6 +339,9 @@ func ( m*MASTERKEY) Init() {
 func ( p *Policy) GenKEYPAIR(MASTER *MASTERKEY, a []string) (*SecretKey,*PublicKey) {
 	var i int
 	SK := new(SecretKey)
+	SK.user_attr = make([]string,len(a))
+	copy(SK.user_attr,a)
+
   // s := RandModOrder(rnd)   // je pense propre à la policy
    
    SK.Dj = make([]*curve.ECP,len(p.attr_proof))
@@ -432,13 +445,10 @@ func main() {
 	POLICY.Init()
 	POLICY.AddLeave(0,0)   //noeud parent (ici 0, le root) et attribut (0 index dans attr_proof)
 	POLICY.AddLeave(0,1)
-	POLICY.tree_nodes[0].SetChildren( []int{1 , 2} , AND )    // tableau des children et le threeshold 2 pour deux leaves valides, 3 pour 3 leaves valides
+	POLICY.AddLeave(0,2)
+	POLICY.tree_nodes[0].SetChildren( []int{1 , 2,3} , 2 )    // tableau des children et le threeshold 2 pour deux leaves valides, 3 pour 3 leaves valides
 
-	POLICY.SetAttributes([]string{"employeibm","employeairbus"})
-  
-   
-
-
+	POLICY.SetAttributes([]string{"companyA","companyB","auditor"})
   
   
 
@@ -446,11 +456,11 @@ func main() {
 	// a represente les attributes de celui qui veut accesder à la preuve
 	a :=make([]string,len(POLICY.attr_proof))
 
-    a[0]= "employeibm"
+     a[0]= "companyA"
     //a[0] = ""
-    a[1] = "employeairbus"
+    a[1] = "companyB"
 
-
+    a[2] = "auditor"
     //MASTER
 	//initialization de la master key pour la central authority
 
