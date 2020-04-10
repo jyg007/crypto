@@ -110,7 +110,9 @@ func (n *NODE) SetChildren(children []int , threshold int) {
 func (n *NODE) Lagrange_Interpolate(x *curve.BIG) (*curve.BIG) {
 	est := curve.NewBIGint(0)
 	for i := 0; i < len(n.x); i++ {
+	//	fmt.Println(n.y[i])
 		prod := curve.NewBIGcopy(n.y[i])
+		// if x is nul alors il faut retrouver q[0]
 
 		for j := 0; j < len(n.x); j++ {
 			if i != j {
@@ -168,10 +170,12 @@ type Policy struct {
     //  on a deux conditions pour test a1 et q2  q1(0)=qR(r1) soit forcement s et de meme q2(0)=qR(r2) soit forcement s egamenet
     //   donc q1(x)=q2(x)=qR(x)=s  
 
-func (p *Policy) Init() {
+
+
+func (p *Policy) Init(threshold int, attributes_array []string) {
 	   	p.rnd = GetRand()
 	   	p.s = RandModOrder(p.rnd)   // je pense propre à la policy	
-
+		p.attr_proof = attributes_array
 	   	//construction du noeud racine
 	   	p.tree_nodes = make([]*NODE,1)
 	   	p.tree_nodes[0] = new (NODE)
@@ -179,27 +183,62 @@ func (p *Policy) Init() {
 	    p.tree_nodes[0].y = make([]*curve.BIG,1)
 	    p.tree_nodes[0].x[0] = curve.NewBIGint(0)
 	    p.tree_nodes[0].y[0] = p.s
+
+	    p.tree_nodes[0].threshold = threshold
+		for i := len(p.tree_nodes[0].x) ; i<threshold;i++ {
+	   		p.tree_nodes[0].x = append(p.tree_nodes[0].x,curve.NewBIGint(10+i))
+	   		p.tree_nodes[0].y = append(p.tree_nodes[0].y,RandModOrder(p.rnd))
+		}
 }
 
-func (p *Policy) AddLeave(parent int, attr int) {
+
+
+func (p *Policy) AddLeave(parent int, attr int) (int){
 	   	n := new (NODE)
 	   	n.parent = parent
 	   	n.attr =attr
    	
+
 	   	n.x = make([]*curve.BIG,1)
 	    n.y = make([]*curve.BIG,1)
 	 //	n.threshold = 1
 	   	p.tree_nodes = append(p.tree_nodes,n)
+	    p.tree_nodes[parent].leaves = append(p.tree_nodes[parent].leaves,len(p.tree_nodes)-1)
 	   	p.leaves_nodes = append(p.leaves_nodes,len(p.tree_nodes)-1)
+
+
+	   	return len(p.tree_nodes)-1
 }
 
-func (p *Policy) SetAttributes( attributes_array []string) {
-	p.attr_proof = attributes_array
+func (p *Policy) AddKnot(parent int, threshold int)  (int) {
+	   	n := new (NODE)
+	   	n.parent = parent
+	      	
+	   	n.x = make([]*curve.BIG,1)
+	    n.y = make([]*curve.BIG,1)
+
+	 	n.threshold = threshold
+	   	p.tree_nodes = append(p.tree_nodes,n)
+	    p.tree_nodes[parent].leaves = append(p.tree_nodes[parent].leaves,len(p.tree_nodes)-1)
+
+		rnd := GetRand()
+		//fmt.Println("Knot",len(p.tree_nodes)-1,threshold)
+		for i := len(n.x) ; i<threshold;i++ {
+	   		n.x = append(n.x,curve.NewBIGint(10+i))
+	   		n.y = append(n.y,RandModOrder(rnd))
+		}
+
+	    n.x[0] = curve.NewBIGint(0)
+	    n.y[0] = p.getq0(parent,len(p.tree_nodes)-1)
+
+	    return len(p.tree_nodes)-1
 }
+
+
 
 // l arbre, qR(0) , k le noeud et x la valeur demander par exemple qk(x)
 func (p *Policy) getq0(k int, x int)  ( *curve.BIG) {
-//	fmt.Println("--q",k,"(",x,")")
+	//fmt.Println("--q",k,"(",x,")")
 	if (x ==0) {
 		if ( k ==0 ) {
 			// en fait jamais appelé ?
@@ -218,10 +257,9 @@ func (p *Policy) getq0(k int, x int)  ( *curve.BIG) {
 //********************************************************************************************************************************************************************
 //********************************************************************************************************************************************************************
 func (p *Policy )Decrypt2( SK *SecretKey , CipherData *Cipher, x int)  (*curve.FP48) {
-	offset_leaves := 1  //(indique le noeud ou commence la premiere leave)
-	fmt.Println("Calcul de F_",x);
+	//offset_leaves := 1  //(indique le noeud ou commence la premiere leave)
+	//fmt.Println("Calcul de F_",x);
 	if len(p.tree_nodes[x].leaves)==0 {
-
 		//calcul Lagrangien
 		i := p.tree_nodes[x].attr   // attribut du noeud
 
@@ -230,8 +268,8 @@ func (p *Policy )Decrypt2( SK *SecretKey , CipherData *Cipher, x int)  (*curve.F
 		}
 
 	//	fmt.Println("***",x-offset_leaves,i)   //  decalage entre tableau noeuds totaux et tableau des leaves
-		eCD := curve.Fexp(curve.Ate(CipherData.Cj[x-offset_leaves],SK.Dj[i]))
-   		eCD_prime := curve.Fexp(curve.Ate(SK.Djprime[i],CipherData.Cjprime[x-offset_leaves]))
+		eCD := curve.Fexp(curve.Ate(CipherData.Cj[x],SK.Dj[i]))
+   		eCD_prime := curve.Fexp(curve.Ate(SK.Djprime[i],CipherData.Cjprime[x]))
    		eCD_prime.Inverse()
    		eCD.Mul(eCD_prime)
 
@@ -243,6 +281,7 @@ func (p *Policy )Decrypt2( SK *SecretKey , CipherData *Cipher, x int)  (*curve.F
 	FFx2 := make([]*curve.BIG,0)   // index(z) 
 
     // parcourons les leaves de ce noeud pour le calculer
+    //fmt.Println("Fx",x,len(p.tree_nodes[x].leaves))
 	for i:=0 ; i< len(p.tree_nodes[x].leaves);i++ { 
 		leave_node := p.tree_nodes[ p.tree_nodes[x].leaves[i] ]
 		if (p.attr_proof[leave_node.attr] == "" ) {
@@ -250,18 +289,25 @@ func (p *Policy )Decrypt2( SK *SecretKey , CipherData *Cipher, x int)  (*curve.F
 		} else {
 			    tmp := p.Decrypt2(SK, CipherData, p.tree_nodes[x].leaves[i])
 			    if (!tmp.Equals(curve.NewFP48int(0))) {
-			    	   fmt.Println("ok")
+
 			    		FFx = append(FFx,tmp)
 						FFx2 = append(FFx2,curve.NewBIGint(p.tree_nodes[x].leaves[i]))
-			    }
+			    } 
 		}
 	}
 
-   	Fx := curve.NewFP48int(1)
-   	for i:=0;i<len(FFx);i++ { 
-	    Fx.Mul(FFx[i].Pow(Lagrange_Interpolate2(FFx2,i)))
-   	}
-	return Fx
+	if len(FFx) == 0 {
+		return curve.NewFP48int(0)
+
+	} else {
+		Fx := curve.NewFP48int(1)
+	   	for i:=0;i<len(FFx);i++ { 
+		    Fx.Mul(FFx[i].Pow(Lagrange_Interpolate2(FFx2,i)))
+	   	}
+		return Fx	
+	}
+
+   	
 }
 
 
@@ -339,8 +385,9 @@ func ( m*MASTERKEY) Init() {
 func ( p *Policy) GenKEYPAIR(MASTER *MASTERKEY, a []string) (*SecretKey,*PublicKey) {
 	var i int
 	SK := new(SecretKey)
-	SK.user_attr = make([]string,len(a))
-	copy(SK.user_attr,a)
+	SK.user_attr =  a
+fmt.Print(".")
+
 
   // s := RandModOrder(rnd)   // je pense propre à la policy
    
@@ -392,8 +439,8 @@ func ( p *Policy) Encrypt(PK *PublicKey, m *curve.FP48) (*Cipher) {
    
   // CipherData.Cj = make([]*curve.ECP8,leaves_nb)
    //CipherData.Cjprime = make([]*curve.ECP,leaves_nb)
-   CipherData.Cj = make([]*curve.ECP8,len(p.leaves_nodes))
-   CipherData.Cjprime = make([]*curve.ECP,len(p.leaves_nodes))
+   CipherData.Cj = make([]*curve.ECP8,len(p.tree_nodes))
+   CipherData.Cjprime = make([]*curve.ECP,len(p.tree_nodes))
 
 
    // ici on parcourt les feuilles et non les listes d attributs.  Exemple un attribut peut revenir deux fois.
@@ -401,10 +448,10 @@ func ( p *Policy) Encrypt(PK *PublicKey, m *curve.FP48) (*Cipher) {
    	  // y := leaves_nodes[i]
    	  // q0 := getq_zero(&policy,s,y,0)
    	   y := p.leaves_nodes[i]
+   	   //fmt.Println(y)
    	   q0:=p.getq0(y,0)
-       CipherData.Cjprime[i] = curve.ECP_mapit([]byte( p.attr_proof[ p.tree_nodes[y].attr] )).Mul(q0)
-       CipherData.Cj[i] = GenG2.Mul(q0)
-
+       CipherData.Cjprime[y] = curve.ECP_mapit([]byte( p.attr_proof[ p.tree_nodes[y].attr] )).Mul(q0)
+       CipherData.Cj[y] = GenG2.Mul(q0)
    }
    return CipherData
 
@@ -442,25 +489,28 @@ func (p *Policy) Decrypt(SK *SecretKey, CipherData *Cipher) (*curve.FP48) {
 func main() {
 
 	POLICY := new(Policy)
-	POLICY.Init()
-	POLICY.AddLeave(0,0)   //noeud parent (ici 0, le root) et attribut (0 index dans attr_proof)
-	POLICY.AddLeave(0,1)
-	POLICY.AddLeave(0,2)
-	POLICY.tree_nodes[0].SetChildren( []int{1 , 2,3} , 2 )    // tableau des children et le threeshold 2 pour deux leaves valides, 3 pour 3 leaves valides
-
-	POLICY.SetAttributes([]string{"companyA","companyB","auditor"})
-  
+	POLICY.Init(OR,[]string{"companyA","manager", "companyB", "manager","auditor"})
+	n1:=POLICY.AddKnot(0,AND)
+	n2:=POLICY.AddKnot(0,AND)
+	POLICY.AddLeave(n1,2)
+	POLICY.AddLeave(n1,3)
+	//n2:=POLICY.AddKnot(0,AND)
+	POLICY.AddLeave(0,4)   //noeud parent (ici 0, le root) et attribut (0 index dans attr_proof)
+	POLICY.AddLeave(n2,0)
+	POLICY.AddLeave(n2,1)
   
 
 	//tableau à deux attribut que l on definit avec une valeur plutot qu un bit
 	// a represente les attributes de celui qui veut accesder à la preuve
 	a :=make([]string,len(POLICY.attr_proof))
 
-     a[0]= "companyA"
-    //a[0] = ""
-    a[1] = "companyB"
+  //  a[0]= "companyA"
+   // a[2]= "companyB"
 
-    a[2] = "auditor"
+   // a[3] = "manager"
+    a[4] = "auditor"
+
+ //  a[1] = "manager"
     //MASTER
 	//initialization de la master key pour la central authority
 
@@ -475,7 +525,11 @@ func main() {
    //KEYGEN
    // ******************************************************
 
-   SK, PK := POLICY.GenKEYPAIR(MASTER,a)
+   SK, PK := POLICY.GenKEYPAIR(MASTER,[]string{"","","","","auditor"})
+   SK2, _ := POLICY.GenKEYPAIR(MASTER,[]string{"companyA","manager","","",""})
+   SK3, _ := POLICY.GenKEYPAIR(MASTER,[]string{"","","companyB","manager",""})
+   SK4, _ := POLICY.GenKEYPAIR(MASTER,[]string{"","","companyB","employe",""})
+   SK5, _ := POLICY.GenKEYPAIR(MASTER,[]string{"","","companyB","employe","auditor"})
    // Le user prend D, Dj et Djprime en tant que private key
 
 
@@ -492,10 +546,30 @@ func main() {
    // ******************************************************
    // DECRYPT
    // ******************************************************
-   
+   fmt.Println()
    // à coupler à de l AES qui se sert de m (utiliser un sha3 shake pour generer la cle AES)
-   m1 := POLICY.Decrypt(SK,CipherData)  
 
-   fmt.Println("Key pour le decodage: ",hex.EncodeToString(Hash_AES_Key(m1)))
+
+   m = POLICY.Decrypt(SK,CipherData)  
+   	fmt.Println(SK.user_attr)
+   fmt.Println("Key pour le decodage: ",hex.EncodeToString(Hash_AES_Key(m)),"\n")
+
+
+    m = POLICY.Decrypt(SK2,CipherData)  
+	fmt.Println(SK2.user_attr)
+   fmt.Println("Key pour le decodage: ",hex.EncodeToString(Hash_AES_Key(m)),"\n")
+  
+    m = POLICY.Decrypt(SK3,CipherData)  
+   	fmt.Println(SK3.user_attr)  
+   fmt.Println("Key pour le decodage: ",hex.EncodeToString(Hash_AES_Key(m)),"\n")
+  
+  m = POLICY.Decrypt(SK4,CipherData)  
+   fmt.Println(SK4.user_attr)
+   
+   fmt.Println("Key pour le decodage: ",hex.EncodeToString(Hash_AES_Key(m)),"\n")
+
+   m = POLICY.Decrypt(SK5,CipherData)  
+   fmt.Println(SK5.user_attr)
+   fmt.Println("Key pour le decodage: ",hex.EncodeToString(Hash_AES_Key(m)),"\n")
  
 }
