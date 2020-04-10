@@ -6,8 +6,6 @@ package main
 import (
 	"fmt"
 	 hex "encoding/hex"
-//	"os"
-//	"strconv"
 	"crypto/rand"
 	amcl "github.com/miracl/core/go/core"
 	curve "github.com/miracl/core/go/core/BLS48581"
@@ -490,27 +488,17 @@ func main() {
 
 	POLICY := new(Policy)
 	POLICY.Init(OR,[]string{"companyA","manager", "companyB", "manager","auditor"})
+
+	//AND Valué à deux , peut être supérieur si nombre de children supérieur à 2, le prendre comme un  nOutOfm
 	n1:=POLICY.AddKnot(0,AND)
 	n2:=POLICY.AddKnot(0,AND)
 	POLICY.AddLeave(n1,2)
 	POLICY.AddLeave(n1,3)
-	//n2:=POLICY.AddKnot(0,AND)
-	POLICY.AddLeave(0,4)   //noeud parent (ici 0, le root) et attribut (0 index dans attr_proof)
+
+	POLICY.AddLeave(0,4)   
 	POLICY.AddLeave(n2,0)
 	POLICY.AddLeave(n2,1)
   
-
-	//tableau à deux attribut que l on definit avec une valeur plutot qu un bit
-	// a represente les attributes de celui qui veut accesder à la preuve
-	a :=make([]string,len(POLICY.attr_proof))
-
-  //  a[0]= "companyA"
-   // a[2]= "companyB"
-
-   // a[3] = "manager"
-    a[4] = "auditor"
-
- //  a[1] = "manager"
     //MASTER
 	//initialization de la master key pour la central authority
 
