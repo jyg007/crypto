@@ -27,6 +27,11 @@ type SecretKey struct {
 	Djprime []*curve.ECP8
 }
 
+type PublicKey struct {
+	h *curve.ECP
+    ealpha *curve.FP48 
+}
+
 
 const OR=1
 const AND=2
@@ -72,15 +77,12 @@ func Modsub(a, b, m *curve.BIG) *curve.BIG {
         return curve.Modadd(a, curve.Modneg(b, m), m)
 }
 
-
 func EcpToBytes(E *curve.ECP) []byte {
 	length := 2*FieldBytes + 1
 	res := make([]byte, length)
 	E.ToBytes(res, false)
 	return res
 }
-
-
 
 type NODE struct {
     parent int  // index of the parent node
@@ -90,9 +92,6 @@ type NODE struct {
     x []*curve.BIG   // represente les points du polynome au noeud en fonction du threshold
     y []*curve.BIG
 }
-
-
-
 
 func (n *NODE) SetChildren(children []int , threshold int) {
 	rnd := GetRand()
@@ -151,7 +150,6 @@ func Lagrange_Interpolate2(n []*curve.BIG, i int) (*curve.BIG) {
 }
 
 
-
 type Policy struct {
 	s *curve.BIG
 	rnd *amcl.RAND
@@ -160,6 +158,13 @@ type Policy struct {
 	nodes_nb int
 	attr_proof []string
 }
+
+
+    // Modelisation polynomiqle (voir lecture 14) de condition a ou b (simple...)
+    // on part ici dans un test a1 OR a2 
+    //  Le polynome est donc de degre 0 (condition Or sur les racine de polynome) .  soit de la forme qR(x) = i  , on a dont qR(0) = s qui force i = s
+    //  on a deux conditions pour test a1 et q2  q1(0)=qR(r1) soit forcement s et de meme q2(0)=qR(r2) soit forcement s egamenet
+    //   donc q1(x)=q2(x)=qR(x)=s  
 
 func (p *Policy) Init() {
 	   	p.rnd = GetRand()
@@ -250,8 +255,6 @@ func (p *Policy )Decrypt2( SK *SecretKey , CipherData *Cipher, x int)  (*curve.F
 }
 
 
-
-
 func RandFP(rng *amcl.RAND) *curve.FP48 {
 
 	// curve order q
@@ -308,20 +311,22 @@ func Hash_AES_Key(n *curve.FP48 ) ([]byte) {
 type MASTERKEY struct {
 	alpha *curve.BIG
 	beta *curve.BIG
-    h *curve.ECP
-    ealpha *curve.FP48 
+
+	pk *PublicKey 
+
 }
 
 func ( m*MASTERKEY) Init() {
 	rnd := GetRand()
     m.alpha = RandModOrder(rnd)
 	m.beta = RandModOrder(rnd)
-    m.h = GenG1.Mul(m.beta)
-    m.ealpha = GenGT.Pow(m.alpha)
+	m.pk = new (PublicKey)
+    m.pk.h = GenG1.Mul(m.beta)
+    m.pk.ealpha = GenGT.Pow(m.alpha)
 }
 
 
-func ( p *Policy) GenSK(MASTER *MASTERKEY, a []string) (*SecretKey) {
+func ( p *Policy) GenKEYPAIR(MASTER *MASTERKEY, a []string) (*SecretKey,*PublicKey) {
 	var i int
 	SK := new(SecretKey)
   // s := RandModOrder(rnd)   // je pense propre à la policy
@@ -355,20 +360,20 @@ func ( p *Policy) GenSK(MASTER *MASTERKEY, a []string) (*SecretKey) {
       SK.Dj[i].Copy(tmp7)
       SK.Djprime[i] = GenG2.Mul(r_attr[i])
    }
-   return SK
+   return SK,MASTER.pk
 
 }
 
-func ( p *Policy) Encrypt(MASTER *MASTERKEY, m *curve.FP48) (*Cipher) {
+func ( p *Policy) Encrypt(PK *PublicKey, m *curve.FP48) (*Cipher) {
    
    CipherData := new(Cipher)
 
    CipherData.Cprime = m
 
    //on encode
-   CipherData.Cprime.Mul(MASTER.ealpha.Pow(p.s))
+   CipherData.Cprime.Mul(PK.ealpha.Pow(p.s))
 
-   CipherData.C = MASTER.h.Mul(p.s)  // Gen 1
+   CipherData.C = PK.h.Mul(p.s)  // Gen 1
 
    // voir plus haut les fonctions q sont constants et toujours égales à s (clé de la policy)
    
@@ -425,18 +430,14 @@ func main() {
 
 	POLICY := new(Policy)
 	POLICY.Init()
-	POLICY.AddLeave(0,0)   //noeud parent et attribut
+	POLICY.AddLeave(0,0)   //noeud parent (ici 0, le root) et attribut (0 index dans attr_proof)
 	POLICY.AddLeave(0,1)
-	POLICY.tree_nodes[0].SetChildren( []int{1 , 2} , AND )    // tableau des children et le threeshold
+	POLICY.tree_nodes[0].SetChildren( []int{1 , 2} , AND )    // tableau des children et le threeshold 2 pour deux leaves valides, 3 pour 3 leaves valides
 
 	POLICY.SetAttributes([]string{"employeibm","employeairbus"})
   
    
-    // Modelisation polynomiqle (voir lecture 14) de condition a ou b (simple...)
-    // on part ici dans un test a1 OR a2 
-    //  Le polynome est donc de degre 0 (condition Or sur les racine de polynome) .  soit de la forme qR(x) = i  , on a dont qR(0) = s qui force i = s
-    //  on a deux conditions pour test a1 et q2  q1(0)=qR(r1) soit forcement s et de meme q2(0)=qR(r2) soit forcement s egamenet
-    //   donc q1(x)=q2(x)=qR(x)=s  
+
 
   
   
@@ -464,7 +465,7 @@ func main() {
    //KEYGEN
    // ******************************************************
 
-   SK := POLICY.GenSK(MASTER,a)
+   SK, PK := POLICY.GenKEYPAIR(MASTER,a)
    // Le user prend D, Dj et Djprime en tant que private key
 
 
@@ -476,9 +477,7 @@ func main() {
    m := RandFP(POLICY.rnd)
    fmt.Println("Key pour l encodage: ",hex.EncodeToString(Hash_AES_Key(m)))
 
-   // à changer ici , il ne faut prendre que lapartie pubkey
-   CipherData := POLICY.Encrypt(MASTER,m)
-
+   CipherData := POLICY.Encrypt(PK,m)
 
    // ******************************************************
    // DECRYPT
