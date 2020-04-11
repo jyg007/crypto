@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	amcl "cpabe/miracl/core/go/core"
 	curve "cpabe/miracl/core/go/core/BLS48581"
+	"golang.org/x/crypto/sha3"
 
 )
 
@@ -88,4 +89,23 @@ func RandFP(rng *amcl.RAND) *curve.FP48 {
 
 	return  curve.NewFP48fp16s(fp16[0],fp16[1],fp16[2])
 
+}
+
+//********************************************************************************************************************************************************************
+//********************************************************************************************************************************************************************
+
+// nh longueur du hash à generer qui depend ici de la longueur du message. 
+// hash de Gt vers {0,1}^m
+
+func Hash_AES_Key(n *curve.FP48 ) ([]byte) {
+    // FP48 a 3 FP16 qui a 2 FP8 qui 2 FP4 qui 2 FP2 qui 2 FP
+	nn := make([]byte,int(3*2*2*2*2*(curve.MODBYTES)))    
+	n.ToBytes(nn)
+
+	h := make([]byte,32)
+
+	hash:=sha3.NewShake256()
+	hash.Write(nn)
+	hash.Read(h)
+	return h
 }

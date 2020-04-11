@@ -7,46 +7,15 @@ import (
 	"fmt"
 	pol "cpabe/policy"
 	util "cpabe/utils"
-	 hex "encoding/hex"
-//	"crypto/rand"
-//	amcl "cpabe/miracl/core/go/core"
-	curve "cpabe/miracl/core/go/core/BLS48581"
-	"golang.org/x/crypto/sha3"
+	hex "encoding/hex"
 )
-
-
-
 
 const OR=1
 const AND=2
 
 
 
-
-
-
-//********************************************************************************************************************************************************************
-//********************************************************************************************************************************************************************
-
-// nh longueur du hash à generer qui depend ici de la longueur du message. 
-// hash de Gt vers {0,1}^m
-
-func Hash_AES_Key(n *curve.FP48 ) ([]byte) {
-    // FP48 a 3 FP16 qui a 2 FP8 qui 2 FP4 qui 2 FP2 qui 2 FP
-	nn := make([]byte,int(3*2*2*2*2*(curve.MODBYTES)))    
-	n.ToBytes(nn)
-
-	h := make([]byte,32)
-
-	hash:=sha3.NewShake256()
-	hash.Write(nn)
-	hash.Read(h)
-	return h
-}
 	
-
-
-
 
 
 //********************************************************************************************************************************************************************
@@ -99,7 +68,7 @@ func main() {
 
    rnd := util.GetRand()
    m := util.RandFP(rnd)
-   fmt.Println("Key pour l encodage: ",hex.EncodeToString(Hash_AES_Key(m)))
+   fmt.Println("Key pour l encodage: ",hex.EncodeToString(util.Hash_AES_Key(m)))
 
    CipherData := POLICY.Encrypt(PK,m)
 
@@ -112,24 +81,24 @@ func main() {
 
    m = POLICY.Decrypt(SK,CipherData)  
    	fmt.Println(SK.User_attr)
-   fmt.Println("Key pour le decodage: ",hex.EncodeToString(Hash_AES_Key(m)),"\n")
+   fmt.Println("Key pour le decodage: ",hex.EncodeToString(util.Hash_AES_Key(m)),"\n")
 
 
     m = POLICY.Decrypt(SK2,CipherData)  
 	fmt.Println(SK2.User_attr)
-   fmt.Println("Key pour le decodage: ",hex.EncodeToString(Hash_AES_Key(m)),"\n")
+   fmt.Println("Key pour le decodage: ",hex.EncodeToString(util.Hash_AES_Key(m)),"\n")
   
     m = POLICY.Decrypt(SK3,CipherData)  
    	fmt.Println(SK3.User_attr)  
-   fmt.Println("Key pour le decodage: ",hex.EncodeToString(Hash_AES_Key(m)),"\n")
+   fmt.Println("Key pour le decodage: ",hex.EncodeToString(util.Hash_AES_Key(m)),"\n")
   
   m = POLICY.Decrypt(SK4,CipherData)  
    fmt.Println(SK4.User_attr)
    
-   fmt.Println("Key pour le decodage: ",hex.EncodeToString(Hash_AES_Key(m)),"\n")
+   fmt.Println("Key pour le decodage: ",hex.EncodeToString(util.Hash_AES_Key(m)),"\n")
 
    m = POLICY.Decrypt(SK5,CipherData)  
    fmt.Println(SK5.User_attr)
-   fmt.Println("Key pour le decodage: ",hex.EncodeToString(Hash_AES_Key(m)),"\n")
+   fmt.Println("Key pour le decodage: ",hex.EncodeToString(util.Hash_AES_Key(m)),"\n")
  
 }
