@@ -272,7 +272,7 @@ func ( p *Policy) Encrypt(PK *PublicKey, m *curve.FP48) (*Cipher) {
    
    CipherData := new(Cipher)
 
-   CipherData.Cprime = m
+   CipherData.Cprime = curve.NewFP48copy(m)
 
    //on encode
    CipherData.Cprime.Mul(PK.ealpha.Pow(p.s))
