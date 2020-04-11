@@ -5,10 +5,12 @@ package main
 
 import (
 	"fmt"
+	node "cpabe/node"
 	 hex "encoding/hex"
-	"crypto/rand"
-	amcl "github.com/miracl/core/go/core"
-	curve "github.com/miracl/core/go/core/BLS48581"
+	 util "cpabe/utils"
+//	"crypto/rand"
+	amcl "cpabe/miracl/core/go/core"
+	curve "cpabe/miracl/core/go/core/BLS48581"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -37,95 +39,9 @@ const OR=1
 const AND=2
 
 
-var GenG1 = curve.ECP_generator()
-var GenG2 = curve.ECP8_generator()
 
-// GenGT is a generator of Group GT
-var GenGT = curve.Fexp(curve.Ate(GenG2, GenG1))
 
-// FieldBytes is the bytelength of the group order
-var FieldBytes = int(curve.MODBYTES)
-// GroupOrder is the order of the groups
-var GroupOrder = curve.NewBIGints(curve.CURVE_Order)
 
-// GetRand returns a new *amcl.RAND with a fresh seed
-func GetRand() (*amcl.RAND) {
-	seedLength := 32
-	b := make([]byte, seedLength)
-	_, err := rand.Read(b)
-	if err != nil {
-		 fmt.Print(err ,"error getting randomness for seed")
-		 return nil
-	}
-	rng := amcl.NewRAND()
-	rng.Clean()
-	rng.Seed(seedLength, b)
-	return rng
-}
-
-func RandModOrder(rng *amcl.RAND) *curve.BIG {
-	// curve order q
-	q := curve.NewBIGints(curve.CURVE_Order)
-
-	// Take random element in Zq
-	return curve.Randomnum(q, rng)
-}
-
-//********************************************************************************************************************************************************************
-//********************************************************************************************************************************************************************
-func Modsub(a, b, m *curve.BIG) *curve.BIG {
-        return curve.Modadd(a, curve.Modneg(b, m), m)
-}
-
-func EcpToBytes(E *curve.ECP) []byte {
-	length := 2*FieldBytes + 1
-	res := make([]byte, length)
-	E.ToBytes(res, false)
-	return res
-}
-
-type NODE struct {
-    parent int  // index of the parent node
-    leaves []int
-    threshold  int     	//threshold 1 pour OR et nombre de leafs si AND
-    attr int     // index de l attribut teste ici
-    x []*curve.BIG   // represente les points du polynome au noeud en fonction du threshold
-    y []*curve.BIG
-}
-
-func (n *NODE) SetChildren(children []int , threshold int) {
-	rnd := GetRand()
-	 n.leaves = children
-	 n.threshold = threshold
-	for i := len(n.x) ; i<threshold;i++ {
-	   	n.x = append(n.x,curve.NewBIGint(10+i))
-	   	n.y = append(n.y,RandModOrder(rnd))
-	}
-}
-
-//********************************************************************************************************************************************************************
-//********************************************************************************************************************************************************************
-func (n *NODE) Lagrange_Interpolate(x *curve.BIG) (*curve.BIG) {
-	est := curve.NewBIGint(0)
-	for i := 0; i < len(n.x); i++ {
-	//	fmt.Println(n.y[i])
-		prod := curve.NewBIGcopy(n.y[i])
-		// if x is nul alors il faut retrouver q[0]
-
-		for j := 0; j < len(n.x); j++ {
-			if i != j {
-		
-				tmp1 := Modsub(x,n.x[j],GroupOrder)  
-				tmp2 := Modsub(n.x[i],n.x[j],GroupOrder)
-				tmp2.Invmodp(GroupOrder)
-				prod = curve.Modmul(prod,tmp1,GroupOrder)
-				prod = curve.Modmul(prod,tmp2,GroupOrder)
-			}
-		}
-		est = curve.Modadd(prod,est,GroupOrder)
-	}
-	return est
-}
 
 //********************************************************************************************************************************************************************
 //******************************************************************************************************************************************************************** 
@@ -140,11 +56,11 @@ func Lagrange_Interpolate2(n []*curve.BIG, i int) (*curve.BIG) {
 	
 	for j := 0; j < len(n); j++ {
 		if i != j {
-			tmp1 = Modsub(x,n[j],GroupOrder)  
-			tmp2 = Modsub(n[i],n[j],GroupOrder)
-			tmp2.Invmodp(GroupOrder)
-			prod = curve.Modmul(prod,tmp1,GroupOrder)
-			prod = curve.Modmul(prod,tmp2,GroupOrder)
+			tmp1 = util.Modsub(x,n[j],util.GroupOrder)  
+			tmp2 = util.Modsub(n[i],n[j],util.GroupOrder)
+			tmp2.Invmodp(util.GroupOrder)
+			prod = curve.Modmul(prod,tmp1,util.GroupOrder)
+			prod = curve.Modmul(prod,tmp2,util.GroupOrder)
 		}
 	}
 		
@@ -155,7 +71,7 @@ func Lagrange_Interpolate2(n []*curve.BIG, i int) (*curve.BIG) {
 type Policy struct {
 	s *curve.BIG
 	rnd *amcl.RAND
-	tree_nodes [] *NODE
+	tree_nodes [] *node.NODE
 	leaves_nodes []int
 	nodes_nb int
 	attr_proof []string
@@ -171,37 +87,37 @@ type Policy struct {
 
 
 func (p *Policy) Init(threshold int, attributes_array []string) {
-	   	p.rnd = GetRand()
-	   	p.s = RandModOrder(p.rnd)   // je pense propre à la policy	
+	   	p.rnd = util.GetRand()
+	   	p.s = util.RandModOrder(p.rnd)   // je pense propre à la policy	
 		p.attr_proof = attributes_array
 	   	//construction du noeud racine
-	   	p.tree_nodes = make([]*NODE,1)
-	   	p.tree_nodes[0] = new (NODE)
-	   	p.tree_nodes[0].x = make([]*curve.BIG,1)
-	    p.tree_nodes[0].y = make([]*curve.BIG,1)
-	    p.tree_nodes[0].x[0] = curve.NewBIGint(0)
-	    p.tree_nodes[0].y[0] = p.s
+	   	p.tree_nodes = make([]*node.NODE,1)
+	   	p.tree_nodes[0] = new (node.NODE)
+	   	p.tree_nodes[0].X = make([]*curve.BIG,1)
+	    p.tree_nodes[0].Y = make([]*curve.BIG,1)
+	    p.tree_nodes[0].X[0] = curve.NewBIGint(0)
+	    p.tree_nodes[0].Y[0] = p.s
 
-	    p.tree_nodes[0].threshold = threshold
-		for i := len(p.tree_nodes[0].x) ; i<threshold;i++ {
-	   		p.tree_nodes[0].x = append(p.tree_nodes[0].x,curve.NewBIGint(10+i))
-	   		p.tree_nodes[0].y = append(p.tree_nodes[0].y,RandModOrder(p.rnd))
+	    p.tree_nodes[0].Threshold = threshold
+		for i := len(p.tree_nodes[0].X) ; i<threshold;i++ {
+	   		p.tree_nodes[0].X = append(p.tree_nodes[0].X,curve.NewBIGint(10+i))
+	   		p.tree_nodes[0].Y = append(p.tree_nodes[0].Y,util.RandModOrder(p.rnd))
 		}
 }
 
 
 
 func (p *Policy) AddLeave(parent int, attr int) (int){
-	   	n := new (NODE)
-	   	n.parent = parent
-	   	n.attr =attr
+	   	n := new (node.NODE)
+	   	n.Parent = parent
+	   	n.Attr =attr
    	
 
-	   	n.x = make([]*curve.BIG,1)
-	    n.y = make([]*curve.BIG,1)
-	 //	n.threshold = 1
+	   	n.X = make([]*curve.BIG,1)
+	    n.Y = make([]*curve.BIG,1)
+	 //	n.Threshold = 1
 	   	p.tree_nodes = append(p.tree_nodes,n)
-	    p.tree_nodes[parent].leaves = append(p.tree_nodes[parent].leaves,len(p.tree_nodes)-1)
+	    p.tree_nodes[parent].Leaves = append(p.tree_nodes[parent].Leaves,len(p.tree_nodes)-1)
 	   	p.leaves_nodes = append(p.leaves_nodes,len(p.tree_nodes)-1)
 
 
@@ -209,25 +125,25 @@ func (p *Policy) AddLeave(parent int, attr int) (int){
 }
 
 func (p *Policy) AddKnot(parent int, threshold int)  (int) {
-	   	n := new (NODE)
-	   	n.parent = parent
+	   	n := new (node.NODE)
+	   	n.Parent = parent
 	      	
-	   	n.x = make([]*curve.BIG,1)
-	    n.y = make([]*curve.BIG,1)
+	   	n.X = make([]*curve.BIG,1)
+	    n.Y = make([]*curve.BIG,1)
 
-	 	n.threshold = threshold
+	 	n.Threshold = threshold
 	   	p.tree_nodes = append(p.tree_nodes,n)
-	    p.tree_nodes[parent].leaves = append(p.tree_nodes[parent].leaves,len(p.tree_nodes)-1)
+	    p.tree_nodes[parent].Leaves = append(p.tree_nodes[parent].Leaves,len(p.tree_nodes)-1)
 
-		rnd := GetRand()
+		rnd := util.GetRand()
 		//fmt.Println("Knot",len(p.tree_nodes)-1,threshold)
-		for i := len(n.x) ; i<threshold;i++ {
-	   		n.x = append(n.x,curve.NewBIGint(10+i))
-	   		n.y = append(n.y,RandModOrder(rnd))
+		for i := len(n.X) ; i<threshold;i++ {
+	   		n.X = append(n.X,curve.NewBIGint(10+i))
+	   		n.Y = append(n.Y,util.RandModOrder(rnd))
 		}
 
-	    n.x[0] = curve.NewBIGint(0)
-	    n.y[0] = p.getq0(parent,len(p.tree_nodes)-1)
+	    n.X[0] = curve.NewBIGint(0)
+	    n.Y[0] = p.getq0(parent,len(p.tree_nodes)-1)
 
 	    return len(p.tree_nodes)-1
 }
@@ -240,12 +156,12 @@ func (p *Policy) getq0(k int, x int)  ( *curve.BIG) {
 	if (x ==0) {
 		if ( k ==0 ) {
 			// en fait jamais appelé ?
-			fmt.Println("k =>" ,p.tree_nodes[k].threshold)
+			fmt.Println("k =>" ,p.tree_nodes[k].Threshold)
 			return p.s	
 		}
-		p.tree_nodes[k].x[0] = curve.NewBIGint(0)
-		p.tree_nodes[k].y[0] = p.getq0(p.tree_nodes[k].parent,k)
-		return p.tree_nodes[k].y[0]
+		p.tree_nodes[k].X[0] = curve.NewBIGint(0)
+		p.tree_nodes[k].Y[0] = p.getq0(p.tree_nodes[k].Parent,k)
+		return p.tree_nodes[k].Y[0]
 	}
 //	fmt.Println("Lagrange ",k,"",x)
 	X := curve.NewBIGint(x)
@@ -257,9 +173,9 @@ func (p *Policy) getq0(k int, x int)  ( *curve.BIG) {
 func (p *Policy )Decrypt2( SK *SecretKey , CipherData *Cipher, x int)  (*curve.FP48) {
 	//offset_leaves := 1  //(indique le noeud ou commence la premiere leave)
 	//fmt.Println("Calcul de F_",x);
-	if len(p.tree_nodes[x].leaves)==0 {
+	if len(p.tree_nodes[x].Leaves)==0 {
 		//calcul Lagrangien
-		i := p.tree_nodes[x].attr   // attribut du noeud
+		i := p.tree_nodes[x].Attr   // attribut du noeud
 
 		if (SK.user_attr[i]=="") {
 			return curve.NewFP48int(0)
@@ -280,16 +196,16 @@ func (p *Policy )Decrypt2( SK *SecretKey , CipherData *Cipher, x int)  (*curve.F
 
     // parcourons les leaves de ce noeud pour le calculer
     //fmt.Println("Fx",x,len(p.tree_nodes[x].leaves))
-	for i:=0 ; i< len(p.tree_nodes[x].leaves);i++ { 
-		leave_node := p.tree_nodes[ p.tree_nodes[x].leaves[i] ]
-		if (p.attr_proof[leave_node.attr] == "" ) {
-			fmt.Println("Param non defini pour l utilisateur:", p.attr_proof[leave_node.attr])
+	for i:=0 ; i< len(p.tree_nodes[x].Leaves);i++ { 
+		leave_node := p.tree_nodes[ p.tree_nodes[x].Leaves[i] ]
+		if (p.attr_proof[leave_node.Attr] == "" ) {
+			fmt.Println("Param non defini pour l utilisateur:", p.attr_proof[leave_node.Attr])
 		} else {
-			    tmp := p.Decrypt2(SK, CipherData, p.tree_nodes[x].leaves[i])
+			    tmp := p.Decrypt2(SK, CipherData, p.tree_nodes[x].Leaves[i])
 			    if (!tmp.Equals(curve.NewFP48int(0))) {
 
 			    		FFx = append(FFx,tmp)
-						FFx2 = append(FFx2,curve.NewBIGint(p.tree_nodes[x].leaves[i]))
+						FFx2 = append(FFx2,curve.NewBIGint(p.tree_nodes[x].Leaves[i]))
 			    } 
 		}
 	}
@@ -371,12 +287,12 @@ type MASTERKEY struct {
 }
 
 func ( m*MASTERKEY) Init() {
-	rnd := GetRand()
-    m.alpha = RandModOrder(rnd)
-	m.beta = RandModOrder(rnd)
+	rnd := util.GetRand()
+    m.alpha = util.RandModOrder(rnd)
+	m.beta = util.RandModOrder(rnd)
 	m.pk = new (PublicKey)
-    m.pk.h = GenG1.Mul(m.beta)
-    m.pk.ealpha = GenGT.Pow(m.alpha)
+    m.pk.h = util.GenG1.Mul(m.beta)
+    m.pk.ealpha = util.GenGT.Pow(m.alpha)
 }
 
 
@@ -387,24 +303,24 @@ func ( p *Policy) GenKEYPAIR(MASTER *MASTERKEY, a []string) (*SecretKey,*PublicK
 fmt.Print(".")
 
 
-  // s := RandModOrder(rnd)   // je pense propre à la policy
+  // s := util.RandModOrder(rnd)   // je pense propre à la policy
    
    SK.Dj = make([]*curve.ECP,len(p.attr_proof))
    SK.Djprime = make([]*curve.ECP8,len(p.attr_proof))
  
    // (r, r1,r2) defini par utilisateur
-   r := RandModOrder(p.rnd)
+   r := util.RandModOrder(p.rnd)
 
    r_attr := make([]*curve.BIG,len(p.attr_proof))
    for i = 0 ; i < len(p.attr_proof) ; i++ {
-   	  r_attr[i] = RandModOrder(p.rnd)
+   	  r_attr[i] = util.RandModOrder(p.rnd)
    }
 
-   tmp1 := curve.Modadd(MASTER.alpha,r, GroupOrder )
+   tmp1 := curve.Modadd(MASTER.alpha,r, util.GroupOrder )
    betainv := curve.NewBIGcopy(MASTER.beta)
-   betainv.Invmodp(GroupOrder)
-   puis := curve.Modmul(tmp1,betainv,GroupOrder)
-   SK.D = GenG2.Mul(puis)
+   betainv.Invmodp(util.GroupOrder)
+   puis := curve.Modmul(tmp1,betainv,util.GroupOrder)
+   SK.D = util.GenG2.Mul(puis)
 
    // q1(0) = s et q2(0) = s ici, sinon voir doc et poly de Lagrange pour interpolation
  
@@ -412,11 +328,11 @@ fmt.Print(".")
 
     for i = 0 ; i < len(p.attr_proof) ; i++ {
  	  tmp6 := curve.ECP_mapit([]byte(a[i])).Mul(r_attr[i])
-   	  tmp7 := GenG1.Mul(r)
+   	  tmp7 := util.GenG1.Mul(r)
       tmp7.Add(tmp6)
       SK.Dj[i] = curve.NewECP()
       SK.Dj[i].Copy(tmp7)
-      SK.Djprime[i] = GenG2.Mul(r_attr[i])
+      SK.Djprime[i] = util.GenG2.Mul(r_attr[i])
    }
    return SK,MASTER.pk
 
@@ -448,8 +364,8 @@ func ( p *Policy) Encrypt(PK *PublicKey, m *curve.FP48) (*Cipher) {
    	   y := p.leaves_nodes[i]
    	   //fmt.Println(y)
    	   q0:=p.getq0(y,0)
-       CipherData.Cjprime[y] = curve.ECP_mapit([]byte( p.attr_proof[ p.tree_nodes[y].attr] )).Mul(q0)
-       CipherData.Cj[y] = GenG2.Mul(q0)
+       CipherData.Cjprime[y] = curve.ECP_mapit([]byte( p.attr_proof[ p.tree_nodes[y].Attr] )).Mul(q0)
+       CipherData.Cj[y] = util.GenG2.Mul(q0)
    }
    return CipherData
 
