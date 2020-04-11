@@ -34,7 +34,7 @@ type Policy struct {
 	tree_nodes [] *node.NODE
 	leaves_nodes []int
 	nodes_nb int
-	attr_proof []string
+	Attr_proof []string
 }
 
 type MASTERKEY struct {
@@ -89,7 +89,7 @@ func Lagrange_Interpolate2(n []*curve.BIG, i int) (*curve.BIG) {
 func (p *Policy) Init(threshold int, attributes_array []string) {
 	   	p.rnd = util.GetRand()
 	   	p.s = util.RandModOrder(p.rnd)   // je pense propre à la policy	
-		p.attr_proof = attributes_array
+		p.Attr_proof = attributes_array
 	   	//construction du noeud racine
 	   	p.tree_nodes = make([]*node.NODE,1)
 	   	p.tree_nodes[0] = new (node.NODE)
@@ -198,8 +198,8 @@ func (p *Policy )Decrypt2( SK *SecretKey , CipherData *Cipher, x int)  (*curve.F
     //fmt.Println("Fx",x,len(p.tree_nodes[x].leaves))
 	for i:=0 ; i< len(p.tree_nodes[x].Leaves);i++ { 
 		leave_node := p.tree_nodes[ p.tree_nodes[x].Leaves[i] ]
-		if (p.attr_proof[leave_node.Attr] == "" ) {
-			fmt.Println("Param non defini pour l utilisateur:", p.attr_proof[leave_node.Attr])
+		if (p.Attr_proof[leave_node.Attr] == "" ) {
+			fmt.Println("Param non defini pour l utilisateur:", p.Attr_proof[leave_node.Attr])
 		} else {
 			    tmp := p.Decrypt2(SK, CipherData, p.tree_nodes[x].Leaves[i])
 			    if (!tmp.Equals(curve.NewFP48int(0))) {
@@ -226,24 +226,25 @@ func (p *Policy )Decrypt2( SK *SecretKey , CipherData *Cipher, x int)  (*curve.F
 
 
 
-func ( p *Policy) GenKEYPAIR(MASTER *MASTERKEY, a []string) (*SecretKey,*PublicKey) {
+func GenKEYPAIR(MASTER *MASTERKEY, attr_proof[] string, a []string) (*SecretKey,*PublicKey) {
 	var i int
 	SK := new(SecretKey)
 	SK.User_attr =  a
 	fmt.Print(".")
 
+  rnd := util.GetRand()
 
   // s := util.RandModOrder(rnd)   // je pense propre à la policy
    
-   SK.Dj = make([]*curve.ECP,len(p.attr_proof))
-   SK.Djprime = make([]*curve.ECP8,len(p.attr_proof))
+   SK.Dj = make([]*curve.ECP,len(attr_proof))
+   SK.Djprime = make([]*curve.ECP8,len(attr_proof))
  
    // (r, r1,r2) defini par utilisateur
-   r := util.RandModOrder(p.rnd)
+   r := util.RandModOrder(rnd)
 
-   r_attr := make([]*curve.BIG,len(p.attr_proof))
-   for i = 0 ; i < len(p.attr_proof) ; i++ {
-   	  r_attr[i] = util.RandModOrder(p.rnd)
+   r_attr := make([]*curve.BIG,len(attr_proof))
+   for i = 0 ; i < len(attr_proof) ; i++ {
+   	  r_attr[i] = util.RandModOrder(rnd)
    }
 
    tmp1 := curve.Modadd(MASTER.alpha,r, util.GroupOrder )
@@ -256,7 +257,7 @@ func ( p *Policy) GenKEYPAIR(MASTER *MASTERKEY, a []string) (*SecretKey,*PublicK
  
    // creation de D pour tous les attributs
 
-    for i = 0 ; i < len(p.attr_proof) ; i++ {
+    for i = 0 ; i < len(attr_proof) ; i++ {
  	  tmp6 := curve.ECP_mapit([]byte(a[i])).Mul(r_attr[i])
    	  tmp7 := util.GenG1.Mul(r)
       tmp7.Add(tmp6)
@@ -294,7 +295,7 @@ func ( p *Policy) Encrypt(PK *PublicKey, m *curve.FP48) (*Cipher) {
    	   y := p.leaves_nodes[i]
    	   //fmt.Println(y)
    	   q0:=p.getq0(y,0)
-       CipherData.Cjprime[y] = curve.ECP_mapit([]byte( p.attr_proof[ p.tree_nodes[y].Attr] )).Mul(q0)
+       CipherData.Cjprime[y] = curve.ECP_mapit([]byte( p.Attr_proof[ p.tree_nodes[y].Attr] )).Mul(q0)
        CipherData.Cj[y] = util.GenG2.Mul(q0)
    }
    return CipherData

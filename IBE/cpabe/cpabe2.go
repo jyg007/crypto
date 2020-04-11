@@ -52,14 +52,15 @@ func main() {
 
 
    // ******************************************************
-   //KEYGEN
+   //KEYGEN - Délivrance de clé par l autorité centrale à l utilsateur 
+   //         en fonction de son profil
    // ******************************************************
 
-   SK, PK := POLICY.GenKEYPAIR(MASTER,[]string{"","","","","auditor"})
-   SK2, _ := POLICY.GenKEYPAIR(MASTER,[]string{"companyA","manager","","","auditor"})
-   SK3, _ := POLICY.GenKEYPAIR(MASTER,[]string{"","","companyB","manager",""})
-   SK4, _ := POLICY.GenKEYPAIR(MASTER,[]string{"","","companyB","employe",""})
-   SK5, _ := POLICY.GenKEYPAIR(MASTER,[]string{"","","companyB","employe","auditor"})
+   SK, PK := pol.GenKEYPAIR(MASTER,POLICY.Attr_proof,[]string{"","","","","auditor"})
+   SK2, _ := pol.GenKEYPAIR(MASTER,POLICY.Attr_proof,[]string{"companyA","manager","","","auditor"})
+   SK3, _ := pol.GenKEYPAIR(MASTER,POLICY.Attr_proof,[]string{"","","companyB","manager",""})
+   SK4, _ := pol.GenKEYPAIR(MASTER,POLICY.Attr_proof,[]string{"","","companyB","employe",""})
+   SK5, _ := pol.GenKEYPAIR(MASTER,POLICY.Attr_proof,[]string{"","","companyB","employe","auditor"})
    // Le user prend D, Dj et Djprime en tant que private key
 
 
