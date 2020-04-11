@@ -56,3 +56,36 @@ func EcpToBytes(E *curve.ECP) []byte {
 	E.ToBytes(res, false)
 	return res
 }
+
+
+func RandFP(rng *amcl.RAND) *curve.FP48 {
+	// curve order q
+	q := curve.NewBIGints(curve.CURVE_Order)
+
+	fp := make([]*curve.FP,48)
+	fp2 := make([]*curve.FP2,24)
+	fp4 := make([]*curve.FP4,12)
+	fp8 := make([]*curve.FP8,6)
+	fp16 := make([]*curve.FP16,3)
+
+	var i int
+	// Take random element in Zq
+	for i=0;i<48;i++ {
+		fp[i] = curve.NewFPbig(curve.Randomnum(q, rng))
+	} 
+	for i=0;i<24;i++ {
+		fp2[i] = curve.NewFP2fps(fp[2*i],fp[2*i+1])
+	} 
+	for i=0;i<12;i++ {
+		fp4[i] = curve.NewFP4fp2s(fp2[2*i],fp2[2*i+1])
+	} 
+	for i=0;i<6;i++ {
+		fp8[i] = curve.NewFP8fp4s(fp4[2*i],fp4[2*i+1])
+	} 
+	for i=0;i<3;i++ {
+		fp16[i] = curve.NewFP16fp8s(fp8[2*i],fp8[2*i+1])
+	} 
+
+	return  curve.NewFP48fp16s(fp16[0],fp16[1],fp16[2])
+
+}
