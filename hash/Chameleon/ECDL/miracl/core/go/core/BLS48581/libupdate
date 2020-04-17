@@ -1,0 +1,2 @@
+n=BIG
+sed -e 's/chamelon/chameleon/' ${n}.go > ${n}.go.tmp;mv -f ${n}.go.tmp  ${n}.go
