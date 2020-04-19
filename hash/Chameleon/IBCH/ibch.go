@@ -5,6 +5,7 @@ import (
 	util "chameleon/utils"
 	curve "chameleon/miracl/core/go/core/BLS48581"
 	"golang.org/x/crypto/sha3"
+	"sync"
 
 	//hex "encoding/hex"
 )
@@ -41,6 +42,11 @@ func (M *MASTERKEY) Init( threshold int) {
 	}
 }
 
+
+	func calc(l *curve.BIG, ch chan *curve.ECP8) {
+		ch <- util.GenG2.Mul(l)
+	}
+
 func (M *MASTERKEY) GenKeyPair(ID []byte) (*SECRETKEY,*PUBLICKEY) {
 	PK := new(PUBLICKEY)
 	SK := new(SECRETKEY)
@@ -50,9 +56,21 @@ func (M *MASTERKEY) GenKeyPair(ID []byte) (*SECRETKEY,*PUBLICKEY) {
 	PK.ID=append(PK.ID,ID...)
 	SK.ID=append(SK.ID,ID...)
 
+	C := make([]chan *curve.ECP8, len(M.a))
+
 	for i:=0;i<len(M.a);i++ {
-		PK.pk[i] = util.GenG2.Mul(M.a[i])
+		C[i] = make(chan *curve.ECP8)
 	}
+
+
+	for i:=0;i<len(M.a);i++ {
+		go calc(M.a[i],C[i])
+	}
+
+	for i:=0;i<len(M.a);i++ {
+		PK.pk[i] = <-C[i]
+	}
+
 	SK.sk = M.f(H1(ID))
 
 	return SK,PK
@@ -89,7 +107,7 @@ func (pk *PUBLICKEY) CHash( L []byte,m []byte,R *curve.ECP) (*curve.FP48) {
 	IDbar=append(IDbar,L...)
 
 	hash := curve.Fexp(curve.Ate(util.GenG2,R))
-	tmpp := curve.Fexp(curve.Ate(pk.fid(H1(pk.ID)),curve.ECP_map2point(H1(IDbar)).Mul(H1(m))))
+	tmpp := curve.Fexp(curve.Ate(pk.fidp(H1(pk.ID)),curve.ECP_map2point(H1(IDbar)).Mul(H1(m))))
 	hash.Mul(tmpp)
 
 	return hash
@@ -146,6 +164,38 @@ func (PUB *PUBLICKEY) fid(x *curve.BIG ) (*curve.ECP8){
 }
 
 
+func calc2(wg *sync.WaitGroup, PKI*curve.ECP8 , X *curve.BIG, m *sync.Mutex ,tot *curve.ECP8 ) {
+		temp := PKI.Mul(X)
+		m.Lock()
+		tot.Add(temp)
+		m.Unlock()
+		wg.Done()
+}
+
+
+func (PUB *PUBLICKEY) fidp(x *curve.BIG ) (*curve.ECP8){
+
+
+
+	var m sync.Mutex
+	var wg sync.WaitGroup
+
+	tot := curve.NewECP8()
+	tot.Copy(PUB.pk[0])
+	X := curve.NewBIGcopy(x)
+	//var m int
+	if len(PUB.pk) >0 {
+		for i:=1;  i<len(PUB.pk);i++ {
+			wg.Add(1)
+			go calc2(&wg,PUB.pk[i],X,&m,tot)
+			X = curve.Modmul(x,X,util.GroupOrder)
+		}	
+	}
+	wg.Wait()
+
+	return tot
+}
+
 
 func main() {
 
@@ -156,7 +206,7 @@ func main() {
 	// Il garde une clé privé pour pouvoir forger un nouveau message skid
 
 	Master := new(MASTERKEY)
-	Master.Init(5)
+	Master.Init(15)
 
 
 
