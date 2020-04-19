@@ -43,9 +43,7 @@ func (M *MASTERKEY) Init( threshold int) {
 }
 
 
-	func calc(l *curve.BIG, ch chan *curve.ECP8) {
-		ch <- util.GenG2.Mul(l)
-	}
+
 
 func (M *MASTERKEY) GenKeyPair(ID []byte) (*SECRETKEY,*PUBLICKEY) {
 	PK := new(PUBLICKEY)
@@ -57,9 +55,12 @@ func (M *MASTERKEY) GenKeyPair(ID []byte) (*SECRETKEY,*PUBLICKEY) {
 	SK.ID=append(SK.ID,ID...)
 
 	C := make([]chan *curve.ECP8, len(M.a))
-
 	for i:=0;i<len(M.a);i++ {
 		C[i] = make(chan *curve.ECP8)
+	}
+
+	calc := func(l *curve.BIG, ch chan *curve.ECP8) {
+		ch <- util.GenG2.Mul(l)
 	}
 
 
@@ -164,21 +165,21 @@ func (PUB *PUBLICKEY) fid(x *curve.BIG ) (*curve.ECP8){
 }
 
 
-func calc2(wg *sync.WaitGroup, PKI*curve.ECP8 , X *curve.BIG, m *sync.Mutex ,tot *curve.ECP8 ) {
+
+
+
+func (PUB *PUBLICKEY) fidp(x *curve.BIG ) (*curve.ECP8){
+	var m sync.Mutex
+	var wg sync.WaitGroup
+
+    calc2 := func (wg *sync.WaitGroup, PKI*curve.ECP8 , X *curve.BIG, m *sync.Mutex ,tot *curve.ECP8 ) {
 		temp := PKI.Mul(X)
 		m.Lock()
 		tot.Add(temp)
 		m.Unlock()
 		wg.Done()
-}
+	}
 
-
-func (PUB *PUBLICKEY) fidp(x *curve.BIG ) (*curve.ECP8){
-
-
-
-	var m sync.Mutex
-	var wg sync.WaitGroup
 
 	tot := curve.NewECP8()
 	tot.Copy(PUB.pk[0])
