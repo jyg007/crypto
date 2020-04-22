@@ -43,8 +43,6 @@ func (M *MASTERKEY) Init( threshold int) {
 }
 
 
-
-
 func (M *MASTERKEY) GenKeyPair(ID []byte) (*SECRETKEY,*PUBLICKEY) {
 	PK := new(PUBLICKEY)
 	SK := new(SECRETKEY)
@@ -62,7 +60,6 @@ func (M *MASTERKEY) GenKeyPair(ID []byte) (*SECRETKEY,*PUBLICKEY) {
 	calc := func(l *curve.BIG, ch chan *curve.ECP8) {
 		ch <- util.GenG2.Mul(l)
 	}
-
 
 	for i:=0;i<len(M.a);i++ {
 		go calc(M.a[i],C[i])
@@ -207,7 +204,7 @@ func main() {
 	// Il garde une clé privé pour pouvoir forger un nouveau message skid
 
 	Master := new(MASTERKEY)
-	Master.Init(15)
+	Master.Init(5)
 
 
 
