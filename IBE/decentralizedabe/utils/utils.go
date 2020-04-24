@@ -114,7 +114,7 @@ func H1( a []byte  ) (*curve.BIG) {
 
 func Hash_AES_Key(n *curve.FP48 ) ([]byte) {
     // FP48 a 3 FP16 qui a 2 FP8 qui 2 FP4 qui 2 FP2 qui 2 FP
-	nn := make([]byte,int(3*2*2*2*2*(curve.MODBYTES)))    
+	nn := make([]byte,int(48*(curve.MODBYTES)))    
 	n.ToBytes(nn)
 
 	h := make([]byte,32)
