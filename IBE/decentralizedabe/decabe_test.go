@@ -7,6 +7,9 @@ import ( "testing"
 		"bytes"
 )
 
+
+
+
 func TestAorB(t* testing.T) {
 	rnd := util.GetRand()
 
@@ -22,11 +25,8 @@ func TestAorB(t* testing.T) {
 	// Authority Setup/	n := 4
 
 
-	ATTRIBUTE_MASTER := make ([]*MASTERKEY,n)
+	ATTRIBUTE_MASTER := GenMasterKeys(n)
 
-	for i:=0;i<len(ATTRIBUTE_MASTER);i++ {
-		ATTRIBUTE_MASTER[i] = NewMASTERKEY()
-	}
 
 	// on va faire ligne par ligne
 
@@ -81,17 +81,13 @@ func TestManagerEtDeuxEntreprisesSeulement(t* testing.T) {
 	A := [][]int{{0,-1},{1,1},{0,0},{0,-1},{1,1},{0,0},{0,0},{0,0},{0,0}}
 	p := []int{0,1,2,3,4,5,6,7,8}
 	n := len(A)
-	c := []int{1,1}  //(tels que Sum cxAx = 0) par utilisateur  , Ax correspond à l unique clé qu'il possède
+	c := []int{1,1,1}  //(tels que Sum cxAx = (1,0,0,0..0)) par utilisateur  , Ax correspond à l unique clé qu'il possède
 	
 
 	// Authority Setup/	n := 4
 
 	t.Log("Génération des master Keys")
-	ATTRIBUTE_MASTER := make ([]*MASTERKEY,n)
-
-	for i:=0;i<len(ATTRIBUTE_MASTER);i++ {
-		ATTRIBUTE_MASTER[i] = NewMASTERKEY()
-	}
+	ATTRIBUTE_MASTER := GenMasterKeys(n)
 
 	// on va faire ligne par ligne
 
@@ -103,13 +99,13 @@ func TestManagerEtDeuxEntreprisesSeulement(t* testing.T) {
 
     M := util.RandFP(rnd)
     aeskey := util.Hash_AES_Key(M)
-    t.Log("Key pour l encodage: ",hex.EncodeToString(aeskey))
+    t.Log("Key pour l encodage: ",hex.EncodeToString(aeskey),"\n")
 
-	t.Log("Encryption des données")
+
 	CipheredData := Encrypt(M,A,p,ATTRIBUTE_MASTER)
 
 
-	t.Log("Attribution des clés")
+
 	//	MatrixMul(A,p,v,1)
 	GID1 := "jyg1@ibm.com"
 	GID2 := "jeanyves.girard2@ibm.com"
@@ -136,27 +132,52 @@ func TestManagerEtDeuxEntreprisesSeulement(t* testing.T) {
 	K4 = append(K4, KEYGEN([]byte(GID3),ATTRIBUTE_MASTER[6].SK,6) )   //HP
 	K4 = append(K4, KEYGEN([]byte(GID3),ATTRIBUTE_MASTER[8].SK,8) )   //Employe 
 
+
+
 	//K4 = append(K4, KEYGEN([]byte(GID),ATTRIBUTE_MASTER[3].SK,3) )
 
 	// Decrypt
+
+	t.Log("User Airbus et Manager")
 	decryptedaeskey := util.Hash_AES_Key(DECRYPT(CipheredData, K1,GID1,p,c))
-	t.Log("Key pour le decodage AES pour user1: ",hex.EncodeToString(decryptedaeskey))
+	t.Log(hex.EncodeToString(decryptedaeskey),"\n")
 	if !bytes.Equal(decryptedaeskey,aeskey)  {
 		t.Error()
 	} 
 
+	t.Log("User Airbus mais employé")
 	U := DECRYPT(CipheredData, K2,GID2,p,c)
-	t.Log("Key pour le decodage AES pour user2: ",hex.EncodeToString(util.Hash_AES_Key(U)))
+	t.Log(hex.EncodeToString(util.Hash_AES_Key(U)),"\n")
 
-
+	t.Log("User IBM et Manager")
 	decryptedaeskey = util.Hash_AES_Key(DECRYPT(CipheredData, K3,GID3,p,c))
-	t.Log("Key pour le decodage AES pour user1: ",hex.EncodeToString(decryptedaeskey))
+	t.Log(hex.EncodeToString(decryptedaeskey),"\n")
 	if !bytes.Equal(decryptedaeskey,aeskey)  {
 		t.Error()
 	} 
 
+	t.Log("User HP et employé")
 	U = DECRYPT(CipheredData, K4,GID4,p,c)
-	t.Log("Key pour le decodage AES pour user4 ",hex.EncodeToString(util.Hash_AES_Key(U)))
+	t.Log(hex.EncodeToString(util.Hash_AES_Key(U)),"\n")
 
+
+	t.Log("User Airbus et Manager mais le GID n est pas bon")
+	decryptedaeskey = util.Hash_AES_Key(DECRYPT(CipheredData, K1,GID2,p,c))
+	t.Log(hex.EncodeToString(decryptedaeskey),"\n")
+	if bytes.Equal(decryptedaeskey,aeskey)  {
+		t.Error()
+	} 
+
+	K1 = nil
+	K1 = append(K1, KEYGEN([]byte(GID1),ATTRIBUTE_MASTER[0].SK,0) )  //Airbus
+	K1 = append(K1, KEYGEN([]byte(GID1),ATTRIBUTE_MASTER[1].SK,1) )  //Manager
+	K1 = append(K1, KEYGEN([]byte(GID1),ATTRIBUTE_MASTER[2].SK,2) )   //Employe
+
+	t.Log("User Airbus et Manager et Employé !")
+	decryptedaeskey = util.Hash_AES_Key(DECRYPT(CipheredData, K1,GID1,p,c))
+	t.Log(hex.EncodeToString(decryptedaeskey),"\n")
+	if !bytes.Equal(decryptedaeskey,aeskey)  {
+		t.Error()
+	} 
 
 }

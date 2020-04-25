@@ -1,11 +1,11 @@
 package main
 
 import (
-//	"fmt"
+	//"fmt"
 	util "decabe/utils"
 	curve "decabe/miracl/core/go/core/BLS48581"
 	"golang.org/x/crypto/sha3"
-	//"sync"
+	"sync"
 
 	//hex "encoding/hex"
 )
@@ -39,6 +39,28 @@ type CIPHER struct {
 	C3 *curve.ECP8
 }
 
+
+// n combien à créer
+func GenMasterKeys(n int) []*MASTERKEY {
+
+	ATTRIBUTE_MASTER := make ([]*MASTERKEY,n)
+
+	var wg sync.WaitGroup
+
+	genmaster := func(wg *sync.WaitGroup, i int) {
+		ATTRIBUTE_MASTER[i] = NewMASTERKEY()
+		wg.Done()
+	}
+
+	for i:=0;i<len(ATTRIBUTE_MASTER);i++ {
+		wg.Add(1)
+		go genmaster(&wg, i)
+	}
+
+	wg.Wait()
+
+	return ATTRIBUTE_MASTER
+}
 
 
 // 
@@ -80,9 +102,6 @@ func H1( a []byte ) (*curve.BIG) {
 func MatrixMul( A [][]int,   v[] *curve.BIG ,x int) (*curve.BIG) {
 
 	col_nb := len(A[0][:])
-	//line_nb := len(A[:])
-	//fmt.Print(A[x][:])
-	//fmt.Println(len(A[][]))
 	tot := curve.NewBIGint(0)
 	for i:=0 ; i<col_nb;i++ {
 
@@ -93,7 +112,7 @@ func MatrixMul( A [][]int,   v[] *curve.BIG ,x int) (*curve.BIG) {
 			tmp = curve.NewBIGint(A[x][i])
 		}
 
-		tmp = curve.Modmul(tmp,v[i],util.GroupOrder)		
+		tmp = curve.Modmul(tmp,v[i],util.GroupOrder)	
 		tot = curve.Modadd(tmp, tot,util.GroupOrder)
 		
 	}
@@ -132,22 +151,26 @@ func Encrypt(M *curve.FP48, A [][]int, p []int, ATTRIBUTE_MASTER[]*MASTERKEY) []
 	}
 
 
-
 	CipheredData := make([]CIPHER,n)
-	r := curve.NewBIG()
 
 	C0 := util.GenGT.Pow(s)
 	C0.Mul(M)
+	BigZero := curve.NewBIGint(0)
 
-	for i:=0;i<n;i++ {
+	encrypt := func(wg *sync.WaitGroup,i int) {
 		CipheredData[i].C0 = C0
+		
+	    rnd := util.GetRand()
 
-		r = util.RandModOrder(rnd)
-
+		r := util.RandModOrder(rnd)
+		
 		CipheredData[i].C1 = ATTRIBUTE_MASTER[p[i]].PK.pka.Pow(r)
 
 		lx := MatrixMul(A,v,i)
-		CipheredData[i].C1.Mul(util.GenGT.Pow(lx))
+
+		if curve.Comp(BigZero,lx) != 0 {
+			CipheredData[i].C1.Mul(util.GenGT.Pow(lx))
+		}
 
 		CipheredData[i].C2 = util.GenG2.Mul(r)
 
@@ -155,8 +178,17 @@ func Encrypt(M *curve.FP48, A [][]int, p []int, ATTRIBUTE_MASTER[]*MASTERKEY) []
 
 		CipheredData[i].C3 = ATTRIBUTE_MASTER[p[i]].PK.pky.Mul(r) 
 		CipheredData[i].C3.Add(util.GenG2.Mul(wx))
-	
+		wg.Done()
 	}
+
+	var wg sync.WaitGroup
+	for i:=0;i<n;i++ {
+		wg.Add(1)
+		go encrypt(&wg,i)
+	}
+
+	wg.Wait()
+	
 	return CipheredData
 
 }
@@ -176,8 +208,11 @@ func DECRYPT( CipheredData []CIPHER, K []*USERKEY, GID string, p []int,c []int) 
   //  pour chaque K[x] => on a un seul Ax => et un seul Cx
 
 	D := make([]*curve.FP48,len(K))
-    for Ki,Kval := range K {
-        // fait la correspondance entre la clé fourni et la partie encrypté auquelle elle se rapporte
+
+	var wg sync.WaitGroup
+
+	var KeyThread = func( wg *sync.WaitGroup, Ki int, Kval *USERKEY) {
+		        // fait la correspondance entre la clé fourni et la partie encrypté auquelle elle se rapporte
         // on cherche la ligne de la matrice à laquelle correspond la clé
         // i correspond à un numéro de ligne de la matrice A
     	// p(i) pointe sur l attribut correspondant
@@ -208,11 +243,18 @@ func DECRYPT( CipheredData []CIPHER, K []*USERKEY, GID string, p []int,c []int) 
 	    } else {
 	    	D[Ki] = curve.NewFP48int(1)
 	    }
-
-
-	  //  D[i] = D[i].Pow(curve.NewBIGint(c[i]))
+	    wg.Done()
 
 	}
+
+
+    for Ki,Kval := range K {
+	  //  D[i] = D[i].Pow(curve.NewBIGint(c[i]))
+	  wg.Add(1)
+	  KeyThread(&wg,Ki,Kval)
+	}
+
+	wg.Wait()
 
 	// pourrais être caculer plus haut
 	tot := curve.NewFP48int(1)
