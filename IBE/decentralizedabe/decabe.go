@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+//	"fmt"
 	util "decabe/utils"
 	curve "decabe/miracl/core/go/core/BLS48581"
 	"golang.org/x/crypto/sha3"
@@ -81,14 +81,21 @@ func MatrixMul( A [][]int,   v[] *curve.BIG ,x int) (*curve.BIG) {
 
 	col_nb := len(A[0][:])
 	//line_nb := len(A[:])
-	fmt.Println(A[x][:])
-	
+	//fmt.Print(A[x][:])
 	//fmt.Println(len(A[][]))
 	tot := curve.NewBIGint(0)
 	for i:=0 ; i<col_nb;i++ {
-		tmp := curve.NewBIGint(A[x][i])
-		tmp = curve.Modmul(tmp,v[i],util.GroupOrder)
+
+		var tmp *curve.BIG
+		if (A[x][i]<0) {
+			tmp = curve.Modneg(curve.NewBIGint(-A[x][i]),util.GroupOrder)
+		} else {
+			tmp = curve.NewBIGint(A[x][i])
+		}
+
+		tmp = curve.Modmul(tmp,v[i],util.GroupOrder)		
 		tot = curve.Modadd(tmp, tot,util.GroupOrder)
+		
 	}
 	return tot
 }
