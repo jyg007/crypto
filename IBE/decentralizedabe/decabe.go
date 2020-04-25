@@ -22,13 +22,15 @@ type  PUBLICKEY struct {
 	pky *curve.ECP8
 }
 
-
 type SECRETKEY struct {
 	alpha  *curve.BIG
 	y  *curve.BIG
-
 }
 
+type USERKEY struct {
+	K *curve.ECP
+	attribute_index int
+}
 
 type CIPHER struct {
 	C0 *curve.FP48
@@ -55,6 +57,12 @@ func NewMASTERKEY() *MASTERKEY{
 	return M
 }
 
+func NewUSERKEY(a *curve.ECP, i int) *USERKEY {
+	K := new(USERKEY)
+	K.K = a
+	K.attribute_index = i
+	return K
+}
 
 
 func H1( a []byte ) (*curve.BIG) {	
@@ -86,9 +94,10 @@ func MatrixMul( A [][]int,   v[] *curve.BIG ,x int) (*curve.BIG) {
 }
 
 
-func Encrypt(M *curve.FP48, A [][]int, p []int, Org_MASTER[]*MASTERKEY) []CIPHER {
-	//n := len(A)
-	n:=1
+func Encrypt(M *curve.FP48, A [][]int, p []int, ATTRIBUTE_MASTER[]*MASTERKEY) []CIPHER {
+	n := len(A)
+
+
 	l := len(A[0])
 
 
@@ -127,7 +136,8 @@ func Encrypt(M *curve.FP48, A [][]int, p []int, Org_MASTER[]*MASTERKEY) []CIPHER
 		CipheredData[i].C0 = C0
 
 		r = util.RandModOrder(rnd)
-		CipheredData[i].C1 = Org_MASTER[p[i]].PK.pka.Pow(r)
+
+		CipheredData[i].C1 = ATTRIBUTE_MASTER[p[i]].PK.pka.Pow(r)
 
 		lx := MatrixMul(A,v,i)
 		CipheredData[i].C1.Mul(util.GenGT.Pow(lx))
@@ -136,7 +146,7 @@ func Encrypt(M *curve.FP48, A [][]int, p []int, Org_MASTER[]*MASTERKEY) []CIPHER
 
 		wx := MatrixMul(A,w,i)
 
-		CipheredData[i].C3 = Org_MASTER[p[i]].PK.pky.Mul(r) 
+		CipheredData[i].C3 = ATTRIBUTE_MASTER[p[i]].PK.pky.Mul(r) 
 		CipheredData[i].C3.Add(util.GenG2.Mul(wx))
 	
 	}
@@ -145,34 +155,57 @@ func Encrypt(M *curve.FP48, A [][]int, p []int, Org_MASTER[]*MASTERKEY) []CIPHER
 }
 
 
-func KEYGEN(GID []byte,  SK *SECRETKEY) (*curve.ECP) {
-	return util.GenG1.Mul2(SK.alpha,curve.ECP_mapit([]byte(GID)),SK.y)
+func KEYGEN(GID []byte,  SK *SECRETKEY, attr int) (*USERKEY) {
+	K := NewUSERKEY(util.GenG1.Mul2(SK.alpha,curve.ECP_mapit([]byte(GID)),SK.y),attr)
+	return K
 }
 
 
-func DECRYPT( CipheredData []CIPHER, K []*curve.ECP , GID string, p []int) *curve.FP48 {
-	n := len(CipheredData)
-	// Decrypt
-	c := []int{1,0,0,0}  //(tels que Sum cxAx = 0)
+func DECRYPT( CipheredData []CIPHER, K []*USERKEY, GID string, p []int,c []int) *curve.FP48 {
+	n := len(K)
 
 	D := make([]*curve.FP48,n)
-    for i:=0;i<n;i++ {
+    for Ki,Kval := range K {
+        // fait la correspondance entre la clé fourni et la partie encrypté auquelle elle se rapporte
+        // on cherche la ligne de la matrice à laquelle correspond la clé
+        // i correspond à un numéro de ligne de la matrice A
+    	// p(i) pointe sur l attribut correspondant
+    	// donc Kval.attribute_index = p[i], et i=p-1(Kval.attribute_index)
+        var i int
+    	for k, v := range p {
+    		//k ligne de la matrice K, p[k]  attribut correspondant
+    		if v == Kval.attribute_index {
+    			i=k
+    			break
+    		}
+    	}
 
-	    D[i] = curve.NewFP48copy(CipheredData[i].C1)
-
+	    D[Ki] = curve.NewFP48copy(CipheredData[i].C1)
 	    t1 := curve.Fexp(curve.Ate(CipheredData[i].C3,curve.ECP_mapit([]byte(GID))))
-	    D[i].Mul(t1)
+	    D[Ki].Mul(t1)
 	  
-	    t2 := curve.Fexp(curve.Ate(CipheredData[i].C2,K[p[i]]))
+	    t2 := curve.Fexp(curve.Ate(CipheredData[i].C2,Kval.K))  //p[i] doit corrponds à un attribute_index, i étant un numéro de ligne de A
 
 	    t2.Inverse()
-	    D[i].Mul(t2)
+	    D[Ki].Mul(t2)
+	    if (c[i] > 0) {
+	        D[Ki] = D[Ki].Pow(curve.NewBIGint(c[i]))
+	    } else if c[i] < 0 {
+			kk := curve.NewBIGint(-c[i])
+			kk = curve.Modneg(kk,util.GroupOrder)	
+		  D[Ki] = D[Ki].Pow(kk)
+	    } else {
+	    	D[Ki] = curve.NewFP48int(1)
+	    }
+
+
+	  //  D[i] = D[i].Pow(curve.NewBIGint(c[i]))
 
 	}
 
 	tot := curve.NewFP48int(1)
 	for i:=0;i<n;i++ {
-	    tot.Mul(D[i].Pow(curve.NewBIGint(c[i])))
+	    tot.Mul(D[i])
 	}
 	U := curve.NewFP48copy(CipheredData[0].C0)
 	tot.Inverse()
@@ -184,37 +217,49 @@ func main() {
 
 	rnd := util.GetRand()
 
-	// Authority Setup
-//	n := 4
-	n := 1
+	// Cas de 4 sociétés gérant chacun un attribut.
+	// Les deux premieres sociétés peuvent lire la donnée mais pas la troisième.
+	// on fait le test avec quatre employés, ceux autorisés et les autres
+	A := [][]int{{1},{1},{1},{1}}
+	p := []int{0,1,2,3}
+	n := len(A)
+	c := []int{1,-1,1,0}  //(tels que Sum cxAx = 0)
+	// Authority Setup/	n := 4
 
-	Org_MASTER := make ([]*MASTERKEY,n)
 
-	for i:=0;i<n;i++ {
-		Org_MASTER[i] = NewMASTERKEY()
+	ATTRIBUTE_MASTER := make ([]*MASTERKEY,n)
+
+	for i:=0;i<len(ATTRIBUTE_MASTER);i++ {
+		ATTRIBUTE_MASTER[i] = NewMASTERKEY()
 	}
 
 	// on va faire ligne par ligne
-	A := [][]int{{1},{1},{1},{1}}
+
+	//A := [][]int{{1},{1},{1}}
+
 
 	// maps row of the matrices to the attributes
-	p := []int{0,1,2,3}
+
 
     M := util.RandFP(rnd)
     fmt.Println("Key pour l encodage: ",hex.EncodeToString(util.Hash_AES_Key(M)))
 
-	CipheredData := Encrypt(M,A,p,Org_MASTER)
+	CipheredData := Encrypt(M,A,p,ATTRIBUTE_MASTER)
 
 	//	MatrixMul(A,p,v,1)
 	GID := "jeanyves.girard@ibm.com"
 
 	//Keygen for a user gid and an attribute i
-    K := make([]*curve.ECP,n)
-    for i:=0;i<n;i++ {
-	  	K[i] = KEYGEN([]byte(GID),Org_MASTER[i].SK)
-	}
+    var K []*USERKEY
+   /* for i:=0;i<n;i++ {
+	  	K[i] = KEYGEN([]byte(GID),ATTRIBUTE_MASTER[i].SK,i)
+	}*/
+	// l organisation qui gere l attribyt 2 signe
+	K = append(K, KEYGEN([]byte(GID),ATTRIBUTE_MASTER[2].SK,2) )
 
-	U := DECRYPT(CipheredData, K,GID,p)
+	// Decrypt
+
+	U := DECRYPT(CipheredData, K,GID,p,c)
 
 	fmt.Println("Key pour le decodage AES: ",hex.EncodeToString(util.Hash_AES_Key(U)))
 
