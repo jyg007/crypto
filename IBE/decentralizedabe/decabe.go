@@ -7,7 +7,7 @@ import (
 	"golang.org/x/crypto/sha3"
 	//"sync"
 
-	hex "encoding/hex"
+	//hex "encoding/hex"
 )
 
 
@@ -162,9 +162,13 @@ func KEYGEN(GID []byte,  SK *SECRETKEY, attr int) (*USERKEY) {
 
 
 func DECRYPT( CipheredData []CIPHER, K []*USERKEY, GID string, p []int,c []int) *curve.FP48 {
-	n := len(K)
 
-	D := make([]*curve.FP48,n)
+  // c s aligne sur les K la liste des clé et sur le sous ensemble de ligne Ax de A qui
+  // se rapporte à ces attributs.
+  // ie c a le même nombre d elements que K
+  //  pour chaque K[x] => on a un seul Ax => et un seul Cx
+
+	D := make([]*curve.FP48,len(K))
     for Ki,Kval := range K {
         // fait la correspondance entre la clé fourni et la partie encrypté auquelle elle se rapporte
         // on cherche la ligne de la matrice à laquelle correspond la clé
@@ -188,10 +192,10 @@ func DECRYPT( CipheredData []CIPHER, K []*USERKEY, GID string, p []int,c []int) 
 
 	    t2.Inverse()
 	    D[Ki].Mul(t2)
-	    if (c[i] > 0) {
-	        D[Ki] = D[Ki].Pow(curve.NewBIGint(c[i]))
-	    } else if c[i] < 0 {
-			kk := curve.NewBIGint(-c[i])
+	    if (c[Ki] > 0) {
+	        D[Ki] = D[Ki].Pow(curve.NewBIGint(c[Ki]))
+	    } else if c[Ki] < 0 {
+			kk := curve.NewBIGint(-c[Ki])
 			kk = curve.Modneg(kk,util.GroupOrder)	
 		  D[Ki] = D[Ki].Pow(kk)
 	    } else {
@@ -203,8 +207,9 @@ func DECRYPT( CipheredData []CIPHER, K []*USERKEY, GID string, p []int,c []int) 
 
 	}
 
+	// pourrais être caculer plus haut
 	tot := curve.NewFP48int(1)
-	for i:=0;i<n;i++ {
+	for i:=0;i<len(D);i++ {
 	    tot.Mul(D[i])
 	}
 	U := curve.NewFP48copy(CipheredData[0].C0)
@@ -214,54 +219,6 @@ func DECRYPT( CipheredData []CIPHER, K []*USERKEY, GID string, p []int,c []int) 
 }
 
 func main() {
-
-	rnd := util.GetRand()
-
-	// Cas de 4 sociétés gérant chacun un attribut.
-	// Les deux premieres sociétés peuvent lire la donnée mais pas la troisième.
-	// on fait le test avec quatre employés, ceux autorisés et les autres
-	A := [][]int{{1},{1},{1},{1}}
-	p := []int{0,1,2,3}
-	n := len(A)
-	c := []int{1,-1,1,0}  //(tels que Sum cxAx = 0)
-	// Authority Setup/	n := 4
-
-
-	ATTRIBUTE_MASTER := make ([]*MASTERKEY,n)
-
-	for i:=0;i<len(ATTRIBUTE_MASTER);i++ {
-		ATTRIBUTE_MASTER[i] = NewMASTERKEY()
-	}
-
-	// on va faire ligne par ligne
-
-	//A := [][]int{{1},{1},{1}}
-
-
-	// maps row of the matrices to the attributes
-
-
-    M := util.RandFP(rnd)
-    fmt.Println("Key pour l encodage: ",hex.EncodeToString(util.Hash_AES_Key(M)))
-
-	CipheredData := Encrypt(M,A,p,ATTRIBUTE_MASTER)
-
-	//	MatrixMul(A,p,v,1)
-	GID := "jeanyves.girard@ibm.com"
-
-	//Keygen for a user gid and an attribute i
-    var K []*USERKEY
-   /* for i:=0;i<n;i++ {
-	  	K[i] = KEYGEN([]byte(GID),ATTRIBUTE_MASTER[i].SK,i)
-	}*/
-	// l organisation qui gere l attribyt 2 signe
-	K = append(K, KEYGEN([]byte(GID),ATTRIBUTE_MASTER[2].SK,2) )
-
-	// Decrypt
-
-	U := DECRYPT(CipheredData, K,GID,p,c)
-
-	fmt.Println("Key pour le decodage AES: ",hex.EncodeToString(util.Hash_AES_Key(U)))
 
 }
 
